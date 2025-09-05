@@ -2830,8 +2830,8 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 	ImWidgetsContext* CreateContext()
 	{
 		ImWidgetsContext* ctx = IM_NEW( ImWidgetsContext );
-		// Default config
-		GlobalData.dashedLinesUseGPU = true;
+		// Default config: focus on CPU path
+		GlobalData.dashedLinesUseGPU = false;
 		// Ensure shader handles are zero-initialized to avoid random garbage checks
 		memset(&ctx->markerShader, 0, sizeof(ImDrawShader));
 		memset(&ctx->lineShader, 0, sizeof(ImDrawShader));
@@ -6448,6 +6448,14 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
     {
         return GlobalData.dashedLinesUseGPU;
     }
+    void SetDashedLinesDebugJoins(bool enable)
+    {
+        GlobalData.dashedLinesDebugJoins = enable;
+    }
+    bool GetDashedLinesDebugJoins()
+    {
+        return GlobalData.dashedLinesDebugJoins;
+    }
 }
 
 namespace ImWidgets
@@ -6628,6 +6636,94 @@ namespace ImWidgets
         }
     }
 
+    // Helpers for join overlays (CPU visualization, includes miter limit)
+    static inline ImVec2 DW_Normalize(const ImVec2& v)
+    {
+        float l = ImSqrt(v.x * v.x + v.y * v.y);
+        return (l > 1e-6f) ? ImVec2(v.x / l, v.y / l) : ImVec2(1, 0);
+    }
+    static inline float DW_Cross(const ImVec2& a, const ImVec2& b) { return a.x * b.y - a.y * b.x; }
+    static inline ImVec2 DW_Perp(const ImVec2& v) { return ImVec2(-v.y, v.x); }
+    static bool DW_LineIntersection(const ImVec2& p, const ImVec2& r, const ImVec2& q, const ImVec2& s, ImVec2& out)
+    {
+        float rxs = DW_Cross(r, s);
+        if (ImFabs(rxs) < 1e-6f) return false;
+        ImVec2 qp = ImVec2(q.x - p.x, q.y - p.y);
+        float t = DW_Cross(qp, s) / rxs;
+        out = ImVec2(p.x + r.x * t, p.y + r.y * t);
+        return true;
+    }
+    static void DW_DrawJoinOverlay(ImDrawList* draw, const ImVec2& A, const ImVec2& B, const ImVec2& C,
+                                   ImU32 col, float thickness, ImWidgetsJoin join, float miter_limit)
+    {
+        if (join != ImWidgetsJoin_Round && join != ImWidgetsJoin_Mitter && join != ImWidgetsJoin_Bevel)
+            return;
+        ImVec2 v0 = DW_Normalize(ImVec2(B.x - A.x, B.y - A.y));
+        ImVec2 v1 = DW_Normalize(ImVec2(C.x - B.x, C.y - B.y));
+        if (ImSqrt((B.x - A.x)*(B.x - A.x) + (B.y - A.y)*(B.y - A.y)) < 1e-6f) return;
+        if (ImSqrt((C.x - B.x)*(C.x - B.x) + (C.y - B.y)*(C.y - B.y)) < 1e-6f) return;
+
+        float halfw = 0.5f * thickness;
+        float turn = DW_Cross(v0, v1);
+        if (ImFabs(turn) < 1e-6f)
+            return; // colinear
+        // Skip tiny angle changes to avoid visual spikes on dense polylines
+        float dotv0 = ImClamp(v0.x * v1.x + v0.y * v1.y, -1.0f, 1.0f);
+        if (dotv0 > 0.996f) // ~< 5 degrees
+            return;
+        ImVec2 n0 = DW_Perp(v0);
+        ImVec2 n1 = DW_Perp(v1);
+        ImVec2 nout0 = (turn > 0.0f) ? n0 : ImVec2(-n0.x, -n0.y);
+        ImVec2 nout1 = (turn > 0.0f) ? n1 : ImVec2(-n1.x, -n1.y);
+        ImVec2 e0 = ImVec2(B.x + nout0.x * halfw, B.y + nout0.y * halfw);
+        ImVec2 e1 = ImVec2(B.x + nout1.x * halfw, B.y + nout1.y * halfw);
+
+        if (join == ImWidgetsJoin_Round)
+        {
+            // Fan arc between e0 and e1
+            // Determine arc direction
+            int segments = ImClamp((int)(halfw * 0.5f), 6, 24);
+            ImVector<ImVec2> arc;
+            arc.resize(0);
+            // Build arc by stepping angle from nout0 to nout1 around center B
+            float a0 = atan2f(nout0.y, nout0.x);
+            float a1 = atan2f(nout1.y, nout1.x);
+            // Ensure we go the shorter way in the outside direction
+            float da = a1 - a0;
+            if (turn > 0.0f && da < 0.0f) da += 2.0f * IM_PI;
+            if (turn < 0.0f && da > 0.0f) da -= 2.0f * IM_PI;
+            for (int i = 0; i <= segments; ++i)
+            {
+                float t = (float)i / (float)segments;
+                float ang = a0 + da * t;
+                arc.push_back(ImVec2(B.x + cosf(ang) * halfw, B.y + sinf(ang) * halfw));
+            }
+            // Triangle fan (B, arc...)
+            for (int i = 0; i + 1 < arc.Size; ++i)
+                draw->AddTriangleFilled(B, arc[i], arc[i + 1], col);
+            return;
+        }
+
+        // Miter or Bevel
+        // Miter length criterion
+        float dotv = ImClamp(v0.x * v1.x + v0.y * v1.y, -0.9999f, 0.9999f);
+        float phi = acosf(dotv);
+        float miter_len = halfw / ImMax(1e-6f, sinf(phi * 0.5f));
+
+        ImVec2 apex;
+        bool has_inter = DW_LineIntersection(e0, v0, e1, ImVec2(-v1.x, -v1.y), apex);
+        bool allow_miter = has_inter && (miter_len <= miter_limit * halfw);
+        if (join == ImWidgetsJoin_Mitter && allow_miter)
+        {
+            draw->AddTriangleFilled(e0, apex, e1, col);
+        }
+        else
+        {
+            // Bevel or miter clipped
+            draw->AddTriangleFilled(e0, B, e1, col);
+        }
+    }
+
     void DrawDashedPolylineAA(
         ImDrawList* drawlist,
         const ImVec2* points, int points_count,
@@ -6638,8 +6734,7 @@ namespace ImWidgets
         ImWidgetsJoin join,
         float miter_limit)
     {
-        IM_UNUSED(join);
-        IM_UNUSED(miter_limit);
+        // join and miter_limit are used by CPU fallback
         if (!drawlist || !points || points_count <= 1 || (col & IM_COL32_A_MASK) == 0)
             return;
 
@@ -6764,6 +6859,7 @@ namespace ImWidgets
             {
                 if (want_cpu_base)
                 {
+                    // Stable base stroke using ImGui polyline
                     drawlist->AddPolyline(subpath.Data, subpath.Size, col, 0, thickness);
                     any_drawn = true;
                 }
@@ -6812,17 +6908,29 @@ namespace ImWidgets
                         }
                         else if (!gpu_used && cap == ImWidgetsCap_TriangleIn)
                         {
-                            // Carve an inward triangle by overdrawing with window background color
+                            // Build a pointed end by adding inward triangles with line color
+                            // (This avoids background-dependent subtraction artifacts.)
                             ImVec2 apex0 = p_start + t0 * halfw; // inward from start
                             ImVec2 apex1 = p_end   - t1 * halfw; // inward from end
-                            ImVec4 bg = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
-                            bg.w = 1.0f; // ensure fully opaque erase
-                            ImU32 erase_col = ImGui::ColorConvertFloat4ToU32(bg);
-                            drawlist->AddTriangleFilled(base0_l, base0_r, apex0, erase_col);
-                            drawlist->AddTriangleFilled(base1_l, base1_r, apex1, erase_col);
+                            drawlist->AddTriangleFilled(base0_l, base0_r, apex0, col);
+                            drawlist->AddTriangleFilled(base1_l, base1_r, apex1, col);
                         }
-                    }
+                        // Square cap overlay
+                        else if (cap == ImWidgetsCap_Square && !gpu_used)
+                        {
+                            ImVec2 dir0 = DW_Normalize(t0);
+                            ImVec2 dir1 = DW_Normalize(t1);
+                            // Start cap rectangle (extend outward by halfw)
+                            ImVec2 s0 = p_start - dir0 * halfw - n0 * halfw;
+                            ImVec2 s1 = p_start - dir0 * halfw + n0 * halfw;
+                            drawlist->AddQuadFilled(s0, s1, p_start + n0 * halfw, p_start - n0 * halfw, col);
+                            // End cap rectangle
+                            ImVec2 e0 = p_end + dir1 * halfw - n1 * halfw;
+                            ImVec2 e1 = p_end + dir1 * halfw + n1 * halfw;
+                            drawlist->AddQuadFilled(p_end - n1 * halfw, p_end + n1 * halfw, e1, e0, col);
+                        }
                 }
+            }
             }
         }
 
@@ -6832,6 +6940,30 @@ namespace ImWidgets
             ImDrawFlags flags = closed ? ImDrawFlags_Closed : 0;
             drawlist->AddPolyline(points, points_count, col, flags, thickness);
         }
+
+        // Optional debug: visualize joins using current join + miter_limit on full path
+        if (GlobalData.dashedLinesDebugJoins && points_count >= 3)
+        {
+            if (closed)
+            {
+                for (int i = 0; i < points_count; ++i)
+                {
+                    int i0 = (i - 1 + points_count) % points_count;
+                    int i1 = i;
+                    int i2 = (i + 1) % points_count;
+                    DW_DrawJoinOverlay(drawlist, points[i0], points[i1], points[i2], col, thickness, join, miter_limit);
+                }
+            }
+            else
+            {
+                for (int i = 1; i + 1 < points_count; ++i)
+                    DW_DrawJoinOverlay(drawlist, points[i - 1], points[i], points[i + 1], col, thickness, join, miter_limit);
+            }
+        }
+
+        // Note: debug join overlays have been removed from the library draw to avoid artifacts
+        // when rendering dense polylines (e.g., sine paths). If needed, add a demo-only toggle
+        // to visualize joins and call DW_DrawJoinOverlay from the demo code.
 
     }
 

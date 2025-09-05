@@ -1760,15 +1760,15 @@ namespace ImWidgets {
 				static int   cap_idx   = (int)ImWidgetsCap_Butt;
 				static int   join_idx  = (int)ImWidgetsJoin_Mitter;
 				static float miter_limit = 4.0f;
-				static int   path_type = 1; // 0=ZigZag, 1=Sine
+				static int   path_type = 1; // 0=ZigZag, 1=Sine, 2=Spiral, 3=RoundedRect, 4=Circle, 5=Infinity, 6=Rose, 7=Heart, 8=Sawtooth, 9=ArcChain, 10=Star, 11=BezierS
 				const char* caps[] = { "None", "Butt", "Square", "Round", "TriangleOut", "TriangleIn" };
 				const char* joins[] = { "Round", "Mitter", "Bevel" };
-				const char* paths[] = { "ZigZag", "Sine" };
+				const char* paths[] = { "ZigZag", "Sine", "Spiral", "RoundedRect", "Circle", "Infinity", "Rose (k=5)", "Heart", "Sawtooth", "Arc Chain", "Star", "Bezier S" };
 				ImGui::SetCursorScreenPos(origin + ImVec2(8, 6));
 				dl->AddRect(origin, origin + ImVec2(avail, height), IM_COL32(64,64,64,255));
 
 				// Build path
-				ImVec2 pts_stack[128];
+				ImVec2 pts_stack[256];
 				ImVec2* pts = pts_stack;
 				int pts_count = 0;
 				float left = origin.x + 16.0f;
@@ -1787,7 +1787,7 @@ namespace ImWidgets {
 					pts_stack[6] = ImVec2(right, bottom);
 					pts_count = 7;
 				}
-				else
+				else if (path_type == 1)
 				{
 					// Sine path across the rect
 					int N = 64;
@@ -1799,6 +1799,182 @@ namespace ImWidgets {
 						pts_stack[i] = ImVec2(x, y);
 					}
 					pts_count = N;
+				}
+				else if (path_type == 2)
+				{
+					// Spiral path centered in the rect
+					int N = 96;
+					ImVec2 center = ImVec2((left + right) * 0.5f, (top + bottom) * 0.5f);
+					float rx = (right - left) * 0.45f;
+					float ry = (bottom - top) * 0.45f;
+					for (int i = 0; i < N; ++i)
+					{
+						float t = (float)i / (float)(N - 1);
+						float ang = t * 4.0f * IM_PI;
+						float r = 0.1f + 0.9f * t; // from center outward
+						float x = center.x + cosf(ang) * rx * r;
+						float y = center.y + sinf(ang) * ry * r;
+						pts_stack[i] = ImVec2(x, y);
+					}
+					pts_count = N;
+				}
+				else if (path_type == 3)
+				{
+					// Rounded rectangle inside the zone
+					float pad = 28.0f;
+					ImVec2 pmin(left + pad, top + pad);
+					ImVec2 pmax(right - pad, bottom - pad);
+					float rx = (pmax.x - pmin.x) * 0.18f;
+					float ry = (pmax.y - pmin.y) * 0.18f;
+					int seg = 12;
+					int idx = 0;
+					// Top-right corner arc
+					for (int i = 0; i <= seg; ++i) { float a = IM_PI * 1.5f + (float)i/seg * IM_PI*0.5f; pts_stack[idx++] = ImVec2(pmax.x - rx + cosf(a)*rx, pmin.y + ry + sinf(a)*ry); }
+					// Bottom-right
+					for (int i = 0; i <= seg; ++i) { float a = 0.0f + (float)i/seg * IM_PI*0.5f;  pts_stack[idx++] = ImVec2(pmax.x - rx + cosf(a)*rx, pmax.y - ry + sinf(a)*ry); }
+					// Bottom-left
+					for (int i = 0; i <= seg; ++i) { float a = IM_PI*0.5f + (float)i/seg * IM_PI*0.5f; pts_stack[idx++] = ImVec2(pmin.x + rx + cosf(a)*rx, pmax.y - ry + sinf(a)*ry); }
+					// Top-left
+					for (int i = 0; i <= seg; ++i) { float a = IM_PI + (float)i/seg * IM_PI*0.5f;   pts_stack[idx++] = ImVec2(pmin.x + rx + cosf(a)*rx, pmin.y + ry + sinf(a)*ry); }
+					pts_count = idx;
+				}
+				else if (path_type == 4)
+				{
+					// Circle
+					ImVec2 c((left+right)*0.5f, (top+bottom)*0.5f);
+					float r = ImMin((right-left), (bottom-top)) * 0.35f;
+					int N = 128;
+					for (int i = 0; i < N; ++i)
+					{
+						float a = (2.0f*IM_PI) * (float)i / (float)N;
+						pts_stack[i] = ImVec2(c.x + cosf(a)*r, c.y + sinf(a)*r);
+					}
+					pts_count = N;
+				}
+				else if (path_type == 5)
+				{
+					// Infinity (lemniscate of Gerono)
+					ImVec2 c((left+right)*0.5f, (top+bottom)*0.5f);
+					float sx = (right-left)*0.35f, sy = (bottom-top)*0.25f;
+					int N = 140;
+					for (int i = 0; i < N; ++i)
+					{
+						float t = (2.0f*IM_PI) * (float)i / (float)(N-1);
+						float x = cosf(t);
+						float y = sinf(t) * cosf(t);
+						pts_stack[i] = ImVec2(c.x + x*sx, c.y + y*sy);
+					}
+					pts_count = N;
+				}
+				else if (path_type == 6)
+				{
+					// Rose curve r = a*cos(kθ) with k=5
+					ImVec2 c((left+right)*0.5f, (top+bottom)*0.5f);
+					float a = ImMin((right-left), (bottom-top))*0.35f;
+					int N = 220; int k = 5;
+					for (int i = 0; i < N; ++i)
+					{
+						float th = (2.0f*IM_PI) * (float)i / (float)(N-1);
+						float r = a * cosf(k*th);
+						pts_stack[i] = ImVec2(c.x + r*cosf(th), c.y + r*sinf(th));
+					}
+					pts_count = N;
+				}
+				else if (path_type == 7)
+				{
+					// Heart curve (scaled)
+					ImVec2 c((left+right)*0.5f, (top+bottom)*0.5f);
+					float s = ImMin((right-left), (bottom-top))*0.035f;
+					int N = 160; int idx = 0;
+					for (int i = 0; i < N; ++i)
+					{
+						float t = (2.0f*IM_PI) * (float)i / (float)(N-1);
+						float x = 16.0f*s*sinf(t)*sinf(t)*sinf(t);
+						float y = - (13.0f*cosf(t) - 5.0f*cosf(2*t) - 2.0f*cosf(3*t) - cosf(4*t)) * s;
+						pts_stack[idx++] = ImVec2(c.x + x, c.y + y);
+					}
+					pts_count = N;
+				}
+				else if (path_type == 8)
+				{
+					// Sawtooth across the rect
+					int teeth = 12; int idx = 0;
+					float w = (right-left);
+					float h0 = top + (bottom-top)*0.25f;
+					float h1 = bottom - (bottom-top)*0.25f;
+					for (int i = 0; i <= teeth; ++i)
+					{
+						float x = ImLerp(left, right, (float)i/(float)teeth);
+						float y = (i%2)==0 ? h0 : h1;
+						pts_stack[idx++] = ImVec2(x, y);
+					}
+					pts_count = (teeth+1);
+				}
+				else if (path_type == 9)
+				{
+					// Arc chain: alternating up/down semicircles
+					int arcs = 6; int seg = 18; int idx = 0;
+					float span = (right-left) / arcs;
+					float cy = (top+bottom)*0.5f;
+					float r = (bottom-top)*0.22f;
+					for (int a = 0; a < arcs; ++a)
+					{
+						float cx = left + span*(a+0.5f);
+						bool up = (a%2)==0;
+						float start = up ? IM_PI : 0.0f;
+						float end   = up ? 2.0f*IM_PI : IM_PI;
+						for (int i = 0; i <= seg; ++i)
+						{
+							float t = (float)i/(float)seg;
+							float ang = ImLerp(start, end, t);
+							pts_stack[idx++] = ImVec2(cx + cosf(ang)*r, cy + sinf(ang)*r);
+						}
+					}
+					pts_count = idx;
+				}
+				else if (path_type == 10)
+				{
+					// 5-point star
+					ImVec2 c((left+right)*0.5f, (top+bottom)*0.5f);
+					float R = ImMin((right-left), (bottom-top))*0.42f;
+					float r = R*0.45f; int idx = 0;
+					for (int i = 0; i < 10; ++i)
+					{
+						float ang = -IM_PI*0.5f + (float)i * (IM_PI/5.0f);
+						float rad = (i%2)==0 ? R : r;
+						pts_stack[idx++] = ImVec2(c.x + cosf(ang)*rad, c.y + sinf(ang)*rad);
+					}
+					pts_count = 10;
+				}
+				else if (path_type == 11)
+				{
+					// Bezier S (two cubic segments)
+					ImVec2 p0(left, (top+bottom)*0.5f);
+					ImVec2 p1(left + (right-left)*0.25f, top);
+					ImVec2 p2(left + (right-left)*0.25f, bottom);
+					ImVec2 p3(left + (right-left)*0.5f, (top+bottom)*0.5f);
+					ImVec2 q0 = p3;
+					ImVec2 q1(left + (right-left)*0.75f, bottom);
+					ImVec2 q2(left + (right-left)*0.75f, top);
+					ImVec2 q3(right, (top+bottom)*0.5f);
+					int N = 32; int idx = 0;
+					for (int i = 0; i < N; ++i)
+					{
+						float t = (float)i/(float)(N-1);
+						float u = 1.0f - t;
+						ImVec2 a = ImVec2(u*u*u*p0.x + 3*u*u*t*p1.x + 3*u*t*t*p2.x + t*t*t*p3.x,
+						                    u*u*u*p0.y + 3*u*u*t*p1.y + 3*u*t*t*p2.y + t*t*t*p3.y);
+						pts_stack[idx++] = a;
+					}
+					for (int i = 0; i < N; ++i)
+					{
+						float t = (float)i/(float)(N-1);
+						float u = 1.0f - t;
+						ImVec2 b = ImVec2(u*u*u*q0.x + 3*u*u*t*q1.x + 3*u*t*t*q2.x + t*t*t*q3.x,
+						                    u*u*u*q0.y + 3*u*u*t*q1.y + 3*u*t*t*q2.y + t*t*t*q3.y);
+						pts_stack[idx++] = b;
+					}
+					pts_count = 2*N;
 				}
 
 				ImU32 col = IM_COL32(255, 200, 40, 255);
@@ -1820,6 +1996,9 @@ namespace ImWidgets {
 				bool use_gpu = ImWidgets::GetDashedLinesUseGPU();
 				if (ImGui::Checkbox("GPU Path##dashed", &use_gpu))
 					ImWidgets::SetDashedLinesUseGPU(use_gpu);
+				bool debug_joins = ImWidgets::GetDashedLinesDebugJoins();
+				if (ImGui::Checkbox("Debug Joins (CPU)##dashed", &debug_joins))
+					ImWidgets::SetDashedLinesDebugJoins(debug_joins);
 			}
 #if 0 // TODO
 			if ( ImGui::CollapsingHeader( "SliderRing" ) )

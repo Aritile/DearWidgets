@@ -485,6 +485,7 @@ struct ImGlobalData
 {
     ImWidgetsFeatures features;
     bool             dashedLinesUseGPU;
+    bool             dashedLinesDebugJoins;
 };
 
 struct ImCircle
@@ -1141,6 +1142,8 @@ namespace ImWidgets{
     // Config
     IMGUI_API void SetDashedLinesUseGPU(bool enable);
     IMGUI_API bool GetDashedLinesUseGPU();
+    IMGUI_API void SetDashedLinesDebugJoins(bool enable);
+    IMGUI_API bool GetDashedLinesDebugJoins();
 
     //////////////////////////////////////////////////////////////////////////
     // Polylines (Dashed/Stroked)

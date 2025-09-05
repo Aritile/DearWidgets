@@ -156,7 +156,9 @@ float4 main_ps(PS_INPUT input) : SV_Target
     float s = dot(P - p0, ex) + dash_offset;
     float m = main_dash_mask(s, dash.x, dash.y);
 
+    float vis = alpha_edge * m;
     float4 out_col = color;
-    out_col.a *= alpha_edge * m;
+    out_col.rgb *= vis;   // also modulate RGB so dashes are obvious even if blend state is atypical
+    out_col.a   *= vis;
     return out_col;
 }
