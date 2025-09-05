@@ -1656,7 +1656,7 @@ namespace ImWidgets {
 				ImGui::Text( "Value: %d", value );
 				value += ( int )ImWidgets::ButtonExCircle( caption.c_str(), radius, 0 );
 			}
-			if ( ImGui::CollapsingHeader( "Button Capsule", ImGuiTreeNodeFlags_DefaultOpen ) )
+			if ( ImGui::CollapsingHeader( "Button Capsule" ) )
 			{
 				ImDrawList* pDrawList = ImGui::GetWindowDrawList();
 				float const size = ImGui::GetContentRegionAvail().x;
@@ -1742,6 +1742,84 @@ namespace ImWidgets {
 				ImGui::DragFloat( "Near Plane", &value[ 0 ], 1.0f, min, value[ 1 ] );
 				ImGui::DragFloat( "Focal Planes", &value[ 1 ], 1.0f, value[ 0 ], value[ 2 ] );
 				ImGui::DragFloat( "Far Planes", &value[ 2 ], 1.0f, value[ 1 ], max );
+			}
+			if ( ImGui::CollapsingHeader( "Dashed Polylines", ImGuiTreeNodeFlags_DefaultOpen ) )
+			{
+				ImDrawList* dl = ImGui::GetWindowDrawList();
+				float avail = ImGui::GetContentRegionAvail().x;
+				float height = 220.0f;
+				ImVec2 origin = ImGui::GetCursorScreenPos();
+				ImGui::InvisibleButton("##zone_dashed_poly", ImVec2(avail, height));
+
+				static float thickness = 6.0f;
+				static float dash_len = 24.0f;
+				static float gap_len  = 12.0f;
+				static float offset   = 0.0f;
+				static bool  animate   = false;
+				static bool  closed    = false;
+				static int   cap_idx   = (int)ImWidgetsCap_Butt;
+				static int   join_idx  = (int)ImWidgetsJoin_Mitter;
+				static float miter_limit = 4.0f;
+				static int   path_type = 1; // 0=ZigZag, 1=Sine
+				const char* caps[] = { "None", "Butt", "Square", "Round", "TriangleOut", "TriangleIn" };
+				const char* joins[] = { "Round", "Mitter", "Bevel" };
+				const char* paths[] = { "ZigZag", "Sine" };
+				ImGui::SetCursorScreenPos(origin + ImVec2(8, 6));
+				dl->AddRect(origin, origin + ImVec2(avail, height), IM_COL32(64,64,64,255));
+
+				// Build path
+				ImVec2 pts_stack[128];
+				ImVec2* pts = pts_stack;
+				int pts_count = 0;
+				float left = origin.x + 16.0f;
+				float right = origin.x + avail - 16.0f;
+				float top = origin.y + 24.0f;
+				float bottom = origin.y + height - 24.0f;
+				float midx = (left + right) * 0.5f;
+				if (path_type == 0)
+				{
+					pts_stack[0] = ImVec2(left, top);
+					pts_stack[1] = ImVec2(midx, bottom);
+					pts_stack[2] = ImVec2(right, top);
+					pts_stack[3] = ImVec2(midx, top + (bottom-top)*0.5f);
+					pts_stack[4] = ImVec2(left, bottom);
+					pts_stack[5] = ImVec2(midx, top + (bottom-top)*0.25f);
+					pts_stack[6] = ImVec2(right, bottom);
+					pts_count = 7;
+				}
+				else
+				{
+					// Sine path across the rect
+					int N = 64;
+					for (int i = 0; i < N; ++i)
+					{
+						float t = (float)i / (float)(N - 1);
+						float x = ImLerp(left, right, t);
+						float y = ImLerp(top + (bottom-top)*0.2f, bottom - (bottom-top)*0.2f, 0.5f + 0.4f * sinf(t * 4.0f * IM_PI));
+						pts_stack[i] = ImVec2(x, y);
+					}
+					pts_count = N;
+				}
+
+				ImU32 col = IM_COL32(255, 200, 40, 255);
+				if (animate)
+					offset += ImGui::GetIO().DeltaTime * 50.0f;
+				ImWidgets::DrawDashedPolylineAA(dl, pts, pts_count, col, thickness, dash_len, gap_len, offset, closed, (ImWidgetsCap_)cap_idx, (ImWidgetsJoin)join_idx, miter_limit);
+
+				ImGui::SetCursorScreenPos(origin + ImVec2(0, height + 6));
+				ImGui::SliderFloat("Thickness##dashed", &thickness, 1.0f, 24.0f);
+				ImGui::SliderFloat("Dash##dashed", &dash_len, 1.0f, 100.0f);
+				ImGui::SliderFloat("Gap##dashed", &gap_len, 0.0f, 100.0f);
+				ImGui::SliderFloat("Offset##dashed", &offset, -200.0f, 200.0f);
+				ImGui::Checkbox("Animate Offset##dashed", &animate);
+				ImGui::Checkbox("Closed##dashed", &closed);
+				ImGui::Combo("Cap##dashed", &cap_idx, caps, IM_ARRAYSIZE(caps));
+				ImGui::Combo("Join##dashed", &join_idx, joins, IM_ARRAYSIZE(joins));
+				ImGui::SliderFloat("Miter Limit##dashed", &miter_limit, 1.0f, 12.0f, "%.2f");
+				ImGui::Combo("Path##dashed", &path_type, paths, IM_ARRAYSIZE(paths));
+				bool use_gpu = ImWidgets::GetDashedLinesUseGPU();
+				if (ImGui::Checkbox("GPU Path##dashed", &use_gpu))
+					ImWidgets::SetDashedLinesUseGPU(use_gpu);
 			}
 #if 0 // TODO
 			if ( ImGui::CollapsingHeader( "SliderRing" ) )

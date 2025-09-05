@@ -168,6 +168,7 @@ struct ImWidgetsContext
 	ImWidgetsFeatures				features;
 
 	ImDrawShader					markerShader;
+	ImDrawShader					lineShader;
 };
 
 enum ImWidgetsStyleColor
@@ -308,6 +309,25 @@ private:
 
 	ImVector<ColorModifier>	m_ColorStack;
 	ImVector<VarModifier>	m_VarStack;
+};
+
+// Shader constant buffer for dashed line rendering
+struct ImWidgetsDashedLineBuffer
+{
+    ImVec2  p0;            // segment start (screen space)
+    ImVec2  p1;            // segment end   (screen space)
+    float   thickness;     // stroke width in pixels
+    float   aa;            // aa fringe in pixels
+    ImVec2  dash;          // x=dash length, y=gap length (pixels)
+    float   dash_offset;   // offset along path (pixels)
+    float   cap;           // 0=butt,1=square,2=round
+    float   join;          // reserved
+    float   miter_limit;   // reserved
+    float   pad0;          // padding
+    ImVec2  rect_min;      // bounding quad min (screen space)
+    ImVec2  rect_max;      // bounding quad max (screen space)
+    ImVec4  color;         // RGBA
+    float   pad_cb[3];     // pad to 16-byte multiple for D3D constant buffer
 };
 
 #define ImWidgets_Kibi (1024ull)
@@ -453,17 +473,18 @@ typedef int ImWidgetsCap;
 
 enum ImWidgetsJoin_
 {
-	ImWidgetsJoin_Round,
-	ImWidgetsJoin_Mitter,
-	ImWidgetsJoin_Bevel,
+    ImWidgetsJoin_Round,
+    ImWidgetsJoin_Mitter,
+    ImWidgetsJoin_Bevel,
 
-	ImWidgetsJoin_COUNT
+    ImWidgetsJoin_COUNT
 };
 typedef int ImWidgetsJoin;
 
 struct ImGlobalData
 {
-	ImWidgetsFeatures features;
+    ImWidgetsFeatures features;
+    bool             dashedLinesUseGPU;
 };
 
 struct ImCircle
@@ -573,7 +594,8 @@ namespace ImWidgets{
 	int LoadShaderFile( size_t* file_data_size, char** file_data, char const* filename )
 	{
 		*file_data_size = 0;
-		*file_data = ( char* )ImFileLoadToMemory( filename, "rb", file_data_size );
+		// Load with 1 padding byte so the buffer is NUL-terminated for APIs expecting C-strings
+		*file_data = ( char* )ImFileLoadToMemory( filename, "rb", file_data_size, 1 );
 		if ( !*file_data )
 			return 0;
 
@@ -830,8 +852,8 @@ namespace ImWidgets{
 	void	ShapeOkLchDiamondGradient( ImWidgetsShape& shape, ImVec2 uv_start, ImVec2 uv_end, ImU32 col0, ImU32 col1 );
 	void	ShapeLinearSRGBLinearGradient( ImWidgetsShape& shape, ImVec2 uv_start, ImVec2 uv_end, ImU32 col0, ImU32 col1 );
 	void	ShapeLinearSRGBRadialGradient( ImWidgetsShape& shape, ImVec2 uv_start, ImVec2 uv_end, ImU32 col0, ImU32 col1 );
-	void	ShapeLinearSRGBDiamondGradient( ImWidgetsShape& shape, ImVec2 uv_start, ImVec2 uv_end, ImU32 col0, ImU32 col1 );
-	void	ShapeHSVLinearGradient( ImWidgetsShape& shape, ImVec2 uv_start, ImVec2 uv_end, ImU32 col0, ImU32 col1 );
+    void	ShapeLinearSRGBDiamondGradient( ImWidgetsShape& shape, ImVec2 uv_start, ImVec2 uv_end, ImU32 col0, ImU32 col1 );
+    void	ShapeHSVLinearGradient( ImWidgetsShape& shape, ImVec2 uv_start, ImVec2 uv_end, ImU32 col0, ImU32 col1 );
 	void	ShapeHSVRadialGradient( ImWidgetsShape& shape, ImVec2 uv_start, ImVec2 uv_end, ImU32 col0, ImU32 col1 );
 	void	ShapeHSVDiamondGradient( ImWidgetsShape& shape, ImVec2 uv_start, ImVec2 uv_end, ImU32 col0, ImU32 col1 );
 
@@ -1019,10 +1041,10 @@ namespace ImWidgets{
 												 int division1 = -1, float height1 = -1.0f, float thickness1 = -1.0f, float angle1 = -1.0f, ImU32 col1 = 0u,
 												 int division2 = -1, float height2 = -1.0f, float thickness2 = -1.0f, float angle2 = -1.0f, ImU32 col2 = 0u );
 
-	IMGUI_API void DrawLogLineGraduation( ImDrawList* drawlist, ImVec2 start, ImVec2 end,
-												float mainLineThickness, ImU32 mainCol,
-												int division0, float height0, float thickness0, float angle0, ImU32 col0,
-												int division1 = -1, float height1 = -1.0f, float thickness1 = -1.0f, float angle1 = -1.0f, ImU32 col1 = 0u );
+    IMGUI_API void DrawLogLineGraduation( ImDrawList* drawlist, ImVec2 start, ImVec2 end,
+                                        float mainLineThickness, ImU32 mainCol,
+                                        int division0, float height0, float thickness0, float angle0, ImU32 col0,
+                                        int division1 = -1, float height1 = -1.0f, float thickness1 = -1.0f, float angle1 = -1.0f, ImU32 col1 = 0u );
 
 	IMGUI_API void DrawLogCircularGraduation( ImDrawList* drawlist, ImVec2 center, float radius, float start_angle, float end_angle, int num_segments,
 												float mainLineThickness, ImU32 mainCol,
@@ -1113,6 +1135,40 @@ namespace ImWidgets{
 	//////////////////////////////////////////////////////////////////////////
 	// Window Customization
 	//////////////////////////////////////////////////////////////////////////
-	// Note: it will break the rounding.
-	IMGUI_API void SetCurrentWindowBackgroundImage( ImTextureID id, ImVec2 imgSize, bool fixedSize = false, ImU32 col = IM_COL32( 255, 255, 255, 255 ) );
+    // Note: it will break the rounding.
+    IMGUI_API void SetCurrentWindowBackgroundImage( ImTextureID id, ImVec2 imgSize, bool fixedSize = false, ImU32 col = IM_COL32( 255, 255, 255, 255 ) );
+
+    // Config
+    IMGUI_API void SetDashedLinesUseGPU(bool enable);
+    IMGUI_API bool GetDashedLinesUseGPU();
+
+    //////////////////////////////////////////////////////////////////////////
+    // Polylines (Dashed/Stroked)
+    //////////////////////////////////////////////////////////////////////////
+    // Draw a dashed, anti-aliased polyline. Pattern alternates on/off lengths starting with ON.
+    // - points: polyline vertices
+    // - dashes: array of lengths [on, off, on, off, ...] in pixels; repeats
+    // - dash_offset: initial offset into the pattern in pixels (positive shifts start forward)
+    // - closed: whether to close the path (last connects to first)
+    // Caps and joins are approximations using ImDrawList path stroking.
+    IMGUI_API void DrawDashedPolylineAA(
+        ImDrawList* drawlist,
+        const ImVec2* points, int points_count,
+        ImU32 col, float thickness,
+        const float* dashes, int dashes_count, float dash_offset,
+        bool closed = false,
+        ImWidgetsCap cap = ImWidgetsCap_Butt,
+        ImWidgetsJoin join = ImWidgetsJoin_Mitter,
+        float miter_limit = 4.0f);
+
+    // Convenience: single on/off lengths.
+    IMGUI_API void DrawDashedPolylineAA(
+        ImDrawList* drawlist,
+        const ImVec2* points, int points_count,
+        ImU32 col, float thickness,
+        float dash_len, float gap_len, float dash_offset,
+        bool closed = false,
+        ImWidgetsCap cap = ImWidgetsCap_Butt,
+        ImWidgetsJoin join = ImWidgetsJoin_Mitter,
+        float miter_limit = 4.0f);
 }

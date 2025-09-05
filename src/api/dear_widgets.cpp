@@ -5,7 +5,7 @@
 #endif
 
 namespace ImWidgets{
-	ImGlobalData GlobalData;
+    ImGlobalData GlobalData;
 
 	//////////////////////////////////////////////////////////////////////////
 	// Data
@@ -2830,6 +2830,11 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 	ImWidgetsContext* CreateContext()
 	{
 		ImWidgetsContext* ctx = IM_NEW( ImWidgetsContext );
+		// Default config
+		GlobalData.dashedLinesUseGPU = true;
+		// Ensure shader handles are zero-initialized to avoid random garbage checks
+		memset(&ctx->markerShader, 0, sizeof(ImDrawShader));
+		memset(&ctx->lineShader, 0, sizeof(ImDrawShader));
 		if ( GlobalData.features & ImWidgetsFeatures_Markers )
 			ImPlatform::SetFeatures( ImPlatformFeatures_CustomShader );
 
@@ -3729,15 +3734,32 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 		ImFormatString( filename_ps, FILENAME_BUF, "./shaders/%s/%s_ps.%s", "wgpu", shader_name, "wgpu" );
 #endif
 
-		char *vs_source;
-		char *ps_source;
-		size_t file_data_size_vs;
-		size_t file_data_size_ps;
-		LoadShaderFile( &file_data_size_vs, &vs_source, filename_vs );
-		LoadShaderFile( &file_data_size_ps, &ps_source, filename_ps );
+		char *vs_source = NULL;
+		char *ps_source = NULL;
+		size_t file_data_size_vs = 0;
+		size_t file_data_size_ps = 0;
+		int ok_vs = LoadShaderFile( &file_data_size_vs, &vs_source, filename_vs );
+		int ok_ps = LoadShaderFile( &file_data_size_ps, &ps_source, filename_ps );
+		if ( !ok_vs || file_data_size_vs == 0 )
+		{
+			char alt_vs[ FILENAME_BUF * 2 ];
+			ImFormatString( alt_vs, sizeof(alt_vs), "./workingdir/shaders/%s/%s.%s", "hlsl_src", shader_name, "hlsl" );
+			LoadShaderFile( &file_data_size_vs, &vs_source, alt_vs );
+		}
+		if ( !ok_ps || file_data_size_ps == 0 )
+		{
+			char alt_ps[ FILENAME_BUF * 2 ];
+			ImFormatString( alt_ps, sizeof(alt_ps), "./workingdir/shaders/%s/%s.%s", "hlsl_src", shader_name, "hlsl" );
+			LoadShaderFile( &file_data_size_ps, &ps_source, alt_ps );
+		}
 
-		IM_ASSERT( vs_source && ps_source );
-		IM_ASSERT( file_data_size_vs != 0 && file_data_size_ps != 0 );
+		if ( vs_source == NULL || ps_source == NULL || file_data_size_vs == 0 || file_data_size_ps == 0 )
+		{
+			ImDrawShader zero = {};
+			memset( &zero, 0, sizeof( ImDrawShader ) );
+			memcpy( shaders_out, &zero, sizeof( ImDrawShader ) );
+			return;
+		}
 
 		ImDrawShader shader = ImPlatform::CreateShader( vs_source, ps_source, sizeof_vs_const_buffer, vs_const_buffer, sizeof_ps_const_buffer, ps_const_buffer );
 
@@ -6416,4 +6438,414 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 
 		drawList->AddImageRounded( id, cur, cur + winSize, ImVec2( 0.0f, 0.0f ), uv, col, window->WindowRounding );
 	}
+
+    // Config API
+    void SetDashedLinesUseGPU(bool enable)
+    {
+        GlobalData.dashedLinesUseGPU = enable;
+    }
+    bool GetDashedLinesUseGPU()
+    {
+        return GlobalData.dashedLinesUseGPU;
+    }
+}
+
+namespace ImWidgets
+{
+    // -------------------------------
+    // Dashed/Stroked Polylines (CPU)
+    // -------------------------------
+    static inline float DW_Length2D(const ImVec2& a, const ImVec2& b)
+    {
+        float dx = b.x - a.x;
+        float dy = b.y - a.y;
+        return ImSqrt(dx * dx + dy * dy);
+    }
+
+    struct DW_PathData
+    {
+        // Flattened sequence optionally closed: points2 has size (n + (closed?1:0))
+        ImVector<ImVec2> points2;
+        ImVector<float>  nodes;     // cumulative distances per point2 index
+        int seg_count;              // number of segments (points2.size()-1)
+        float total_len;            // total length (nodes.back())
+    };
+
+    static void DW_BuildPathData(const ImVec2* points, int points_count, bool closed, DW_PathData& out)
+    {
+        out.points2.resize(0);
+        out.nodes.resize(0);
+        if (points_count <= 1)
+        {
+            out.seg_count = 0;
+            out.total_len = 0.0f;
+            return;
+        }
+        int n2 = points_count + (closed ? 1 : 0);
+        out.points2.resize(n2);
+        for (int i = 0; i < points_count; ++i)
+            out.points2[i] = points[i];
+        if (closed)
+            out.points2[points_count] = points[0];
+
+        out.nodes.resize(n2);
+        out.nodes[0] = 0.0f;
+        for (int i = 1; i < n2; ++i)
+            out.nodes[i] = out.nodes[i - 1] + DW_Length2D(out.points2[i - 1], out.points2[i]);
+        out.seg_count = n2 - 1;
+        out.total_len = (n2 > 0) ? out.nodes[n2 - 1] : 0.0f;
+    }
+
+    static ImVec2 DW_EvalAtS(const DW_PathData& pd, float s, int& out_seg_idx, ImVec2* out_tangent)
+    {
+        // Clamp s to [0, total]
+        if (s <= 0.0f)
+        {
+            out_seg_idx = 0;
+            ImVec2 dir = pd.points2[1] - pd.points2[0];
+            float len = ImSqrt(dir.x * dir.x + dir.y * dir.y);
+            if (out_tangent) *out_tangent = (len > 0.0f) ? (dir / len) : ImVec2(1, 0);
+            return pd.points2[0];
+        }
+        if (s >= pd.total_len)
+        {
+            out_seg_idx = pd.seg_count - 1;
+            ImVec2 dir = pd.points2[pd.seg_count] - pd.points2[pd.seg_count - 1];
+            float len = ImSqrt(dir.x * dir.x + dir.y * dir.y);
+            if (out_tangent) *out_tangent = (len > 0.0f) ? (dir / len) : ImVec2(1, 0);
+            return pd.points2[pd.seg_count];
+        }
+        // Find segment i such that nodes[i] <= s <= nodes[i+1]
+        int lo = 0, hi = (int)pd.nodes.size() - 2; // last segment index = seg_count-1
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >> 1;
+            if (pd.nodes[mid + 1] < s)
+                lo = mid + 1;
+            else if (pd.nodes[mid] > s)
+                hi = mid - 1;
+            else
+            {
+                lo = mid;
+                break;
+            }
+        }
+        int i = ImClamp(lo, 0, pd.seg_count - 1);
+        float seg_len = pd.nodes[i + 1] - pd.nodes[i];
+        float t = (seg_len > 0.0f) ? ((s - pd.nodes[i]) / seg_len) : 0.0f;
+        ImVec2 p0 = pd.points2[i];
+        ImVec2 p1 = pd.points2[i + 1];
+        ImVec2 pos = p0 + (p1 - p0) * t;
+        if (out_tangent)
+        {
+            ImVec2 dir = p1 - p0;
+            float len = ImSqrt(dir.x * dir.x + dir.y * dir.y);
+            *out_tangent = (len > 0.0f) ? (dir / len) : ImVec2(1, 0);
+        }
+        out_seg_idx = i;
+        return pos;
+    }
+
+    static void DW_ExtractSubpath(const DW_PathData& pd, float s0, float s1, ImVector<ImVec2>& out_pts,
+                                  bool add_square_caps, float cap_extent)
+    {
+        out_pts.resize(0);
+        if (s1 - s0 <= 0.0f) return;
+
+        int seg_idx0 = 0, seg_idx1 = 0;
+        ImVec2 tan0, tan1;
+        ImVec2 p0 = DW_EvalAtS(pd, s0, seg_idx0, &tan0);
+        ImVec2 p1 = DW_EvalAtS(pd, s1, seg_idx1, &tan1);
+        // Start point
+        if (add_square_caps && cap_extent > 0.0f)
+            out_pts.push_back(p0 - tan0 * cap_extent);
+        out_pts.push_back(p0);
+        // Intermediate original vertices strictly inside (s0, s1)
+        for (int k = seg_idx0 + 1; k <= seg_idx1; ++k)
+        {
+            float s_at_k = pd.nodes[k];
+            if (s_at_k > s0 && s_at_k < s1)
+                out_pts.push_back(pd.points2[k]);
+        }
+        // End point
+        out_pts.push_back(p1);
+        if (add_square_caps && cap_extent > 0.0f)
+            out_pts.push_back(p1 + tan1 * cap_extent);
+    }
+
+    // Split the [0,total_len] distance domain into ON intervals based on dash pattern
+    static void DW_BuildOnIntervals(float total_len, const float* dashes, int dashes_count, float dash_offset,
+                                    ImVector<ImVec2>& intervals)
+    {
+        intervals.resize(0);
+        if (total_len <= 0.0f)
+            return;
+
+        if (dashes_count <= 0)
+        {
+            intervals.push_back(ImVec2(0.0f, total_len));
+            return;
+        }
+
+        // Compute pattern length and early-out for degenerate patterns
+        float pattern_len = 0.0f;
+        for (int i = 0; i < dashes_count; ++i)
+            pattern_len += ImMax(0.0f, dashes[i]);
+        if (pattern_len <= 0.0f)
+        {
+            intervals.push_back(ImVec2(0.0f, total_len));
+            return;
+        }
+
+        // Normalize offset to [0, pattern_len)
+        float off = ImFmod(dash_offset, pattern_len);
+        if (off < 0.0f) off += pattern_len;
+
+        // Find starting dash index and position inside it
+        int idx = 0;
+        float pos_in_seg = off;
+        while (idx < dashes_count && pos_in_seg >= ImMax(0.0f, dashes[idx]))
+        {
+            pos_in_seg -= ImMax(0.0f, dashes[idx]);
+            idx = (idx + 1) % dashes_count;
+        }
+
+        // March along the path, toggling ON/OFF segments
+        float s = 0.0f;
+        bool on = (idx % 2) == 0; // index 0 is ON, 1 is OFF, 2 is ON, ...
+        while (s < total_len)
+        {
+            float seg_len = ImMax(0.0f, dashes[idx]) - pos_in_seg;
+            float run = ImMin(seg_len, total_len - s);
+            if (on && run > 0.0f)
+                intervals.push_back(ImVec2(s, s + run));
+
+            s += run;
+            // Advance to next pattern segment
+            idx = (idx + 1) % dashes_count;
+            on = !on;
+            pos_in_seg = 0.0f;
+        }
+    }
+
+    void DrawDashedPolylineAA(
+        ImDrawList* drawlist,
+        const ImVec2* points, int points_count,
+        ImU32 col, float thickness,
+        const float* dashes, int dashes_count, float dash_offset,
+        bool closed,
+        ImWidgetsCap cap,
+        ImWidgetsJoin join,
+        float miter_limit)
+    {
+        IM_UNUSED(join);
+        IM_UNUSED(miter_limit);
+        if (!drawlist || !points || points_count <= 1 || (col & IM_COL32_A_MASK) == 0)
+            return;
+
+        // Common inputs
+        ImVec4 colf = ImGui::ColorConvertU32ToFloat4(col);
+        const float aa = 1.0f;
+        const int seg_count = closed ? points_count : (points_count - 1);
+
+#ifdef IM_SUPPORT_CUSTOM_SHADER
+        // Ensure custom shader is created
+        if (gs_pContext->lineShader.vs == NULL && gs_pContext->lineShader.ps == NULL)
+        {
+            ImPlatform::SetFeatures(ImPlatformFeatures_CustomShader);
+            ImWidgetsDashedLineBuffer init = {};
+            init.p0 = ImVec2(0, 0);
+            init.p1 = ImVec2(1, 0);
+            init.thickness = 1.0f;
+            init.aa = 1.0f;
+            init.dash = ImVec2(4.0f, 4.0f);
+            init.dash_offset = 0.0f;
+            init.cap = (float)ImWidgetsCap_Butt;
+            init.join = 0.0f;
+            init.miter_limit = 4.0f;
+            init.color = ImGui::ColorConvertU32ToFloat4(IM_COL32(255,255,255,255));
+            CreateInternalShader(&gs_pContext->lineShader, "lines", 0, NULL, sizeof(ImWidgetsDashedLineBuffer), &init);
+        }
+
+        bool shader_ok = (gs_pContext->lineShader.vs != NULL && gs_pContext->lineShader.ps != NULL && gs_pContext->lineShader.ps_cst != NULL);
+        const bool enable_gpu_path = GlobalData.dashedLinesUseGPU; // user-configurable
+        bool gpu_drew_any = false;
+        if (enable_gpu_path && shader_ok)
+        {
+            // Precompute cumulative lengths for dash continuity across segments
+            float acc_len = 0.0f;
+            for (int i = 0; i < seg_count; ++i)
+            {
+                int i0 = i;
+                int i1 = (i + 1) % points_count;
+                ImVec2 a = points[i0];
+                ImVec2 b = points[i1];
+                ImVec2 d = b - a;
+                float len = ImSqrt(d.x * d.x + d.y * d.y);
+                if (len <= 1e-6f)
+                    continue;
+
+                ImWidgetsDashedLineBuffer params;
+                params.p0 = a;
+                params.p1 = b;
+                params.thickness = thickness;
+                params.aa = aa;
+                if (dashes && dashes_count > 0)
+                {
+                    float dash_len_px = ImMax(0.5f, dashes[0]);
+                    float gap_len_px  = (dashes_count > 1) ? ImMax(0.0f, dashes[1]) : dash_len_px;
+                    params.dash = ImVec2(dash_len_px, gap_len_px);
+                }
+                else
+                {
+                    params.dash = ImVec2(1e9f, 0.0f); // effectively solid
+                }
+                params.dash_offset = dash_offset + acc_len;
+                params.cap = (float)cap;
+                params.join = (float)join;
+                params.miter_limit = miter_limit;
+                params.pad0 = 0.0f;
+                float pad = 0.5f * thickness + 2.0f * aa + 2.0f;
+                ImVec2 minv(ImMin(a.x, b.x) - pad, ImMin(a.y, b.y) - pad);
+                ImVec2 maxv(ImMax(a.x, b.x) + pad, ImMax(a.y, b.y) + pad);
+                params.rect_min = minv;
+                params.rect_max = maxv;
+                params.color = colf;
+
+                ImPlatform::UpdateCustomPixelShaderConstants(gs_pContext->lineShader, &params);
+                ImPlatform::BeginCustomShader(drawlist, gs_pContext->lineShader);
+                drawlist->AddImageQuad((ImTextureID)gs_pContext->whiteImg,
+                                       ImVec2(minv.x, minv.y), ImVec2(maxv.x, minv.y), ImVec2(maxv.x, maxv.y), ImVec2(minv.x, maxv.y),
+                                       ImVec2(0,0), ImVec2(1,0), ImVec2(1,1), ImVec2(0,1), IM_COL32(255,255,255,255));
+                ImPlatform::EndCustomShader(drawlist);
+                gpu_drew_any = true;
+
+                acc_len += len;
+            }
+
+            // GPU path rendered
+            // For triangle caps (not supported in shader), we'll add CPU overlay below.
+            // For other caps, skip CPU base fallback to avoid double drawing.
+            // Mark via a local flag (outside of ifdef) using a static boolean
+        }
+#endif // IM_SUPPORT_CUSTOM_SHADER
+
+        // CPU fallback/overlay: dashed polyline and/or extra caps
+        bool gpu_used = false;
+#ifdef IM_SUPPORT_CUSTOM_SHADER
+        gpu_used = enable_gpu_path && shader_ok && gpu_drew_any;
+#endif
+        // Draw CPU base only if GPU wasn't used
+        const bool want_cpu_base = !gpu_used;
+        const bool want_tri_overlay = (cap == ImWidgetsCap_TriangleOut) || (!gpu_used && cap == ImWidgetsCap_TriangleIn);
+
+        // CPU fallback: dashed polyline using subpaths
+        DW_PathData pd_local;
+        DW_BuildPathData(points, points_count, closed, pd_local);
+        ImVector<ImVec2> intervals;
+        ImVector<ImVec2> subpath;
+        bool any_drawn = false;
+        float dash_len_px = 1e9f, gap_len_px = 0.0f;
+        if (dashes && dashes_count > 0)
+        {
+            dash_len_px = ImMax(0.5f, dashes[0]);
+            gap_len_px  = (dashes_count > 1) ? ImMax(0.0f, dashes[1]) : dash_len_px;
+        }
+        float pats_local[2] = { dash_len_px, gap_len_px };
+        DW_BuildOnIntervals(pd_local.total_len, pats_local, 2, dash_offset, intervals);
+        for (int k = 0; k < intervals.Size; ++k)
+        {
+            float s0 = intervals[k].x;
+            float s1 = intervals[k].y;
+            if (s1 - s0 <= 0.0f) continue;
+            subpath.resize(0);
+            DW_ExtractSubpath(pd_local, s0, s1, subpath, cap == ImWidgetsCap_Square, 0.5f * thickness);
+            if (subpath.Size >= 2)
+            {
+                if (want_cpu_base)
+                {
+                    drawlist->AddPolyline(subpath.Data, subpath.Size, col, 0, thickness);
+                    any_drawn = true;
+                }
+
+                // Extra caps for Round / Triangle types (CPU path)
+                if ((cap == ImWidgetsCap_Round && !gpu_used) || (cap == ImWidgetsCap_TriangleOut) || (!gpu_used && cap == ImWidgetsCap_TriangleIn))
+                {
+                    const float halfw = 0.5f * thickness;
+                    // Start and end points
+                    const ImVec2 p_start = subpath[0];
+                    const ImVec2 p_start_next = subpath[1];
+                    const ImVec2 p_end = subpath[subpath.Size - 1];
+                    const ImVec2 p_end_prev = subpath[subpath.Size - 2];
+
+                    auto safe_norm = [](ImVec2 v) {
+                        float l = ImSqrt(v.x*v.x + v.y*v.y);
+                        return (l > 1e-6f) ? ImVec2(v.x/l, v.y/l) : ImVec2(1, 0);
+                    };
+                    ImVec2 t0 = safe_norm(p_start_next - p_start);
+                    ImVec2 t1 = safe_norm(p_end - p_end_prev);
+                    auto perp = [](const ImVec2& v){ return ImVec2(-v.y, v.x); };
+                    ImVec2 n0 = perp(t0);
+                    ImVec2 n1 = perp(t1);
+
+                    if (cap == ImWidgetsCap_Round && !gpu_used)
+                    {
+                        // Full circle at ends approximates round caps reasonably
+                        drawlist->AddCircleFilled(p_start, halfw, col, 16);
+                        drawlist->AddCircleFilled(p_end,   halfw, col, 16);
+                    }
+                    else
+                    {
+                        // Triangles
+                        // Base at the end is width=thickness centered on endpoint, apex along ±t
+                        ImVec2 base0_l = p_start - n0 * halfw;
+                        ImVec2 base0_r = p_start + n0 * halfw;
+                        ImVec2 base1_l = p_end   - n1 * halfw;
+                        ImVec2 base1_r = p_end   + n1 * halfw;
+
+                        if (cap == ImWidgetsCap_TriangleOut)
+                        {
+                            ImVec2 apex0 = p_start - t0 * halfw; // outward from start
+                            ImVec2 apex1 = p_end   + t1 * halfw; // outward from end
+                            drawlist->AddTriangleFilled(base0_l, base0_r, apex0, col);
+                            drawlist->AddTriangleFilled(base1_l, base1_r, apex1, col);
+                        }
+                        else if (!gpu_used && cap == ImWidgetsCap_TriangleIn)
+                        {
+                            // Carve an inward triangle by overdrawing with window background color
+                            ImVec2 apex0 = p_start + t0 * halfw; // inward from start
+                            ImVec2 apex1 = p_end   - t1 * halfw; // inward from end
+                            ImVec4 bg = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
+                            bg.w = 1.0f; // ensure fully opaque erase
+                            ImU32 erase_col = ImGui::ColorConvertFloat4ToU32(bg);
+                            drawlist->AddTriangleFilled(base0_l, base0_r, apex0, erase_col);
+                            drawlist->AddTriangleFilled(base1_l, base1_r, apex1, erase_col);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Safety net: if nothing was drawn (e.g., degenerate dash pattern), draw a solid polyline
+        if (!any_drawn && points_count >= 2)
+        {
+            ImDrawFlags flags = closed ? ImDrawFlags_Closed : 0;
+            drawlist->AddPolyline(points, points_count, col, flags, thickness);
+        }
+
+    }
+
+    void DrawDashedPolylineAA(
+        ImDrawList* drawlist,
+        const ImVec2* points, int points_count,
+        ImU32 col, float thickness,
+        float dash_len, float gap_len, float dash_offset,
+        bool closed,
+        ImWidgetsCap cap,
+        ImWidgetsJoin join,
+        float miter_limit)
+    {
+        float pats[2] = { ImMax(0.0f, dash_len), ImMax(0.0f, gap_len) };
+        DrawDashedPolylineAA(drawlist, points, points_count, col, thickness, pats, 2, dash_offset, closed, cap, join, miter_limit);
+    }
 }
