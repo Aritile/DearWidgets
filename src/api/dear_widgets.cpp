@@ -2567,6 +2567,47 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 	{
 		GenShapeCircle( shape, center, radius, side_count );
 	}
+	void	GenShapeSquircle( ImWidgetsShape& shape, ImVec2 center, float radius, int side_count, float n )
+	{
+		shape.vertices.clear();
+		shape.triangles.clear();
+
+		// Squircle is defined by the superellipse equation: |x/a|^n + |y/b|^n = 1
+		// We'll sample points around the shape parametrically
+		float d0 = 2.0f * IM_PI / ( ( float )( side_count ) );
+		shape.vertices.resize( side_count + 1 );
+		shape.triangles.resize( side_count );
+		shape.vertices[ 0 ].pos = center;
+
+		// Generate vertices using parametric form of superellipse
+		for ( int k = 0; k < side_count; ++k )
+		{
+			float angle = ( ( float )k ) * d0;
+			float cos_angle = ImCos( angle );
+			float sin_angle = ImSin( angle );
+
+			// Superellipse parametric equations
+			// x = a * sgn(cos(t)) * |cos(t)|^(2/n)
+			// y = b * sgn(sin(t)) * |sin(t)|^(2/n)
+			float exp = 2.0f / n;
+			float x = ImPow( ImFabs( cos_angle ), exp ) * ( cos_angle >= 0 ? 1.0f : -1.0f );
+			float y = ImPow( ImFabs( sin_angle ), exp ) * ( sin_angle >= 0 ? 1.0f : -1.0f );
+
+			shape.vertices[ k + 1 ].pos.x = center.x + radius * x;
+			shape.vertices[ k + 1 ].pos.y = center.y + radius * y;
+		}
+
+		// Generate triangles as a fan from center
+		for ( int k = 0; k < side_count; ++k )
+		{
+			shape.triangles[ k ].a = 0;
+			shape.triangles[ k ].b = ( k + 1 ) % side_count + 1;
+			shape.triangles[ k ].c = ( k + 2 ) % side_count + 1;
+		}
+
+		shape.bb.Min = center - ImVec2( radius, radius );
+		shape.bb.Max = center + ImVec2( radius, radius );
+	}
 
 	// TODO
 	//void	GenShapeFromBezierCubicCurve( ImWidgetsShape& sshape, ImVector<ImVec2>& path, float thickness, int num_segments )

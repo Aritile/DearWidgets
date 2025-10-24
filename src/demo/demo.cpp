@@ -664,6 +664,68 @@ namespace ImWidgets {
 				ImGui::Dummy( ImVec2( size, size ) );
 			}
 #endif
+			if ( ImGui::CollapsingHeader( "Draw Squircle" ) )
+			{
+				float const size = ImGui::GetContentRegionAvail().x;
+				ImDrawList* pDrawList = ImGui::GetWindowDrawList();
+				static float edge_thickness = 2.0f;
+				static float vertex_radius = 16.0f;
+				static ImVec4 edge_col_v( 1.0f, 0.0f, 0.0f, 1.0f );
+				static ImVec4 triangle_col_v( 0.0f, 1.0f, 0.0f, 1.0f );
+				static ImVec4 vertex_col_v( 0.0f, 0.0f, 1.0f, 1.0f );
+				static ImU32 edge_col = ImGui::GetColorU32( edge_col_v );
+				static ImU32 triangle_col = ImGui::GetColorU32( triangle_col_v );
+				static ImU32 vertex_col = ImGui::GetColorU32( vertex_col_v );
+				static ImVec2 uv_start( 0.0f, 0.5f );
+				static ImVec2 uv_end( 1.0f, 0.5f );
+				static ImVec4 cola_v( 1.0f, 0.0f, 0.0f, 1.0f );
+				static ImVec4 colb_v( 0.0f, 1.0f, 0.0f, 1.0f );
+				static ImU32 cola = ImGui::GetColorU32( cola_v );
+				static ImU32 colb = ImGui::GetColorU32( colb_v );
+				static int tri_idx = -1;
+				static int side_count = 32;
+				static float squircle_n = 4.0f;
+#ifdef DEAR_WIDGETS_TESSELATION
+				static int tess = 1;
+				ImGui::SliderInt( "Tess", &tess, 0, 16 );
+#endif
+				ImGui::SliderInt( "Sides", &side_count, 8, 128 );
+				ImGui::SliderFloat( "Squircle n", &squircle_n, 2.0f, 10.0f );
+				ImGui::SliderFloat( "Thickness", &edge_thickness, 0.0f, 16.0f );
+				ImGui::SliderFloat( "Radius", &vertex_radius, 0.0f, 64.0f );
+				if ( ImGui::ColorEdit4( "Edge##DrawSquircle", &edge_col_v.x ) )
+					edge_col = ImGui::GetColorU32( edge_col_v );
+				if ( ImGui::ColorEdit4( "Triangle##DrawSquircle", &triangle_col_v.x ) )
+					triangle_col = ImGui::GetColorU32( triangle_col_v );
+				if ( ImGui::ColorEdit4( "Vertices##DrawSquircle", &vertex_col_v.x ) )
+					vertex_col = ImGui::GetColorU32( vertex_col_v );
+				ImGui::PushMultiItemsWidths( 2, ImGui::CalcItemWidth() );
+				Slider2DFloat( "uv0", &uv_start.x, &uv_start.y, 0.0f, 1.0f, 0.0f, 1.0f );
+				ImGui::SameLine();
+				Slider2DFloat( "uv1", &uv_end.x, &uv_end.y, 0.0f, 1.0f, 0.0f, 1.0f );
+				ImGui::PushMultiItemsWidths( 2, ImGui::CalcItemWidth() );
+				if ( ImGui::ColorEdit4( "ColA##DrawSquircle", &cola_v.x ) )
+					cola = ImGui::GetColorU32( cola_v );
+				ImGui::SameLine();
+				if ( ImGui::ColorEdit4( "ColB##DrawSquircle", &colb_v.x ) )
+					colb = ImGui::GetColorU32( colb_v );
+				ImVec2 pos = ImGui::GetCursorScreenPos();
+				static ImWidgetsShape shape;
+				GenShapeSquircle( shape, pos + ImVec2( size * 0.5f, size * 0.5f ), size * 0.4f, side_count, squircle_n );
+				ShapeSetDefaultUV( shape );
+#ifdef DEAR_WIDGETS_TESSELATION
+				for ( int k = 0; k < tess; ++k )
+					ShapeTesselationUniform( shape );
+#endif
+				ShapeSRGBLinearGradient( shape,
+										 uv_start, uv_end,
+										 cola, colb );
+				DrawShapeDebug( pDrawList, shape, edge_thickness, edge_col, triangle_col, vertex_radius, vertex_col, tri_idx );
+				ImGui::Dummy( ImVec2( size, size ) );
+				ImGui::SliderInt( "tri_idx", &tri_idx, -1, shape.triangles.size() - 1 );
+				ImGui::Text( "Tri: %d", shape.triangles.size() );
+				ImGui::Text( "Vtx: %d", shape.vertices.size() );
+			}
 			if ( ImGui::CollapsingHeader( "Linear Gradient" ) )
 			{
 				float const size = ImGui::GetContentRegionAvail().x;
