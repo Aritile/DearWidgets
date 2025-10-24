@@ -51,6 +51,20 @@
 #define nullptr NULL
 #endif
 
+// Forward declare ImPlatform shader types
+struct ImDrawShader
+{
+	void* vs; // Vertex shader handle (ImPlatform_Shader)
+	void* ps; // Pixel shader handle (ImPlatform_Shader)
+	void* program; // Shader program handle (ImPlatform_ShaderProgram)
+	void* vs_cst; // Vertex shader constant buffer
+	void* ps_cst; // Pixel shader constant buffer
+	void* cpu_vs_data; // CPU copy of vertex shader constants
+	unsigned int cpu_vs_data_size;
+	void* cpu_ps_data; // CPU copy of pixel shader constants
+	unsigned int cpu_ps_data_size;
+};
+
 struct ImWidgetsMarkerBuffer
 {
 	ImVec4	fg_color;

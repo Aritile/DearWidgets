@@ -1,23 +1,38 @@
 #include <demo.h>
 
-//#if defined(__DEAR_GFX_OGL3__)
-//#define IM_GLFW3_AUTO_LINK
-//#define IM_CURRENT_TARGET IM_TARGET_WIN32_OPENGL3
-//#elif defined(__DEAR_GFX_DX9__)
-//#define IM_CURRENT_TARGET IM_TARGET_WIN32_DX9
-//#elif defined(__DEAR_GFX_DX10__)
-//#define IM_CURRENT_TARGET IM_TARGET_WIN32_DX10
-//#elif defined(__DEAR_GFX_DX11__)
-//#define IM_CURRENT_TARGET IM_TARGET_WIN32_DX11
-//#elif defined(__DEAR_GFX_DX12__)
-//#define IM_CURRENT_TARGET IM_TARGET_WIN32_DX12
-//#endif
-#define IM_PLATFORM_IMPLEMENTATION
+#define IMGUI_DEFINE_MATH_OPERATORS
+
+// Map project-specific graphics API defines to ImPlatform defines
+#if defined(__DEAR_GFX_DX9__)
+	#define IM_CURRENT_PLATFORM IM_PLATFORM_WIN32
+	#define IM_CURRENT_GFX IM_GFX_DIRECTX9
+#elif defined(__DEAR_GFX_DX10__)
+	#define IM_CURRENT_PLATFORM IM_PLATFORM_WIN32
+	#define IM_CURRENT_GFX IM_GFX_DIRECTX10
+#elif defined(__DEAR_GFX_DX11__)
+	#define IM_CURRENT_PLATFORM IM_PLATFORM_WIN32
+	#define IM_CURRENT_GFX IM_GFX_DIRECTX11
+#elif defined(__DEAR_GFX_DX12__)
+	#define IM_CURRENT_PLATFORM IM_PLATFORM_WIN32
+	#define IM_CURRENT_GFX IM_GFX_DIRECTX12
+#elif defined(__DEAR_GFX_OGL3__)
+	#define IM_CURRENT_PLATFORM IM_PLATFORM_WIN32
+	#define IM_CURRENT_GFX IM_GFX_OPENGL3
+#elif defined(__DEAR_GFX_VULKAN__)
+	#define IM_CURRENT_PLATFORM IM_PLATFORM_WIN32
+	#define IM_CURRENT_GFX IM_GFX_VULKAN
+#else
+	#error "No graphics API defined. Expected __DEAR_GFX_* define"
+#endif
+
+// Define Implementation and include ImPlatform
+// This will include the ImPlatform backend code which references the ImGui backends above
+#define IMPLATFORM_IMPLEMENTATION
 #include <ImPlatform.h>
 
 #include <dear_widgets.h>
 #include <imgui_internal.h>
-#include <imgui/misc/cpp/imgui_stdlib.h>
+#include <misc/cpp/imgui_stdlib.h>
 
 #include <vector>
 #include <random>
@@ -74,23 +89,20 @@
 //	}
 //};
 
-ImTextureID TextureFromFile(	char const* filename, ImVec2* img_size,
-								ImTextureFiltering const filtering = ImTextureFiltering_Linear,
-								ImTextureBoundary const boundarires = ImTextureBoundary_Clamp )
+ImTextureID TextureFromFile( char const* filename, ImVec2* img_size )
 {
 	int width;
 	int height;
 	ImTextureID img;
 
 	stbi_uc* data = stbi_load( filename, &width, &height, NULL, 4 );
-	img = ImPlatform::CreateTexture2D(	( char* )data, width, height,
-										{
-											ImPixelChannel_RGBA,
-											ImPixelType_UInt8,
-											filtering,
-											boundarires,
-											boundarires
-										} );
+	if ( !data )
+		return ImTextureID_Invalid;
+
+	// Use new ImPlatform C API for texture creation
+	ImPlatform_TextureDesc tex_desc = ImPlatform_TextureDesc_Default( width, height );
+	img = ImPlatform_CreateTexture( data, &tex_desc );
+
 	img_size->x = ( float )width;
 	img_size->y = ( float )height;
 	STBI_FREE( data );
@@ -126,10 +138,11 @@ ImVec2 TemperatureTo_xy( float TT )
 	return ImVec2( xc, yc );
 }
 
-static inline ImVec4 operator*( const ImVec4& lhs, const float rhs )
-{
-	return ImVec4( lhs.x * rhs, lhs.y * rhs, lhs.z * rhs, lhs.w * rhs );
-}
+// ImVec4 operator* is now provided by IMGUI_DEFINE_MATH_OPERATORS
+// static inline ImVec4 operator*( const ImVec4& lhs, const float rhs )
+// {
+// 	return ImVec4( lhs.x * rhs, lhs.y * rhs, lhs.z * rhs, lhs.w * rhs );
+// }
 
 #pragma region ShaderToyHelper
 // Ref: https://www.shadertoy.com/view/WlSGW1
@@ -178,53 +191,106 @@ ImTextureID man_img;
 ImVec2 man_size;
 int main()
 {
-	if ( !ImPlatform::SimpleStart( "Dear Widgets Demo", ImVec2( 0.0f, 0.0f ), 1024, 764 * 2 ) )
+	// Using the new ImPlatform C API - following ImPlatform demo pattern
+	bool bGood;
+
+	// Create window
+	bGood = ImPlatform_CreateWindow( "Dear Widgets Demo", ImVec2( 100.0f, 100.0f ), 1024, 764 * 2 );
+	if ( !bGood )
+	{
+		fprintf( stderr, "ImPlatform: Cannot create window.\n" );
 		return 1;
+	}
+
+	// Initialize Graphics API
+	bGood = ImPlatform_InitGfxAPI();
+	if ( !bGood )
+	{
+		fprintf( stderr, "ImPlatform: Cannot initialize the Graphics API.\n" );
+		return 1;
+	}
+
+	// Show window
+	bGood = ImPlatform_ShowWindow();
+	if ( !bGood )
+	{
+		fprintf( stderr, "ImPlatform: Cannot show the window.\n" );
+		return 1;
+	}
 
 	// Setup Dear ImGui context
+	IMGUI_CHECKVERSION();
+	bGood = ImGui::CreateContext() != nullptr;
+	if ( !bGood )
+	{
+		fprintf( stderr, "ImGui: Cannot create context.\n" );
+		return 1;
+	}
+
+	// Setup Dear ImGui IO
 	ImGuiIO& io = ImGui::GetIO(); ( void )io;
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;		// Enable Keyboard Controls
-	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;	// Enable Gamepad Controls
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;		// Enable Gamepad Controls
 #ifdef IMGUI_HAS_DOCK
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;			// Enable Docking
 #endif
 #ifdef IMGUI_HAS_VIEWPORT
-	// TODO: Fix cf. ImPlatform
-	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;		// Enable Multi-Viewport / Platform Windows
+	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;			// Enable Multi-Viewport / Platform Windows
+	//io.ConfigViewportsNoAutoMerge = true;
+	//io.ConfigViewportsNoTaskBarIcon = true;
 #endif
-	////io.ConfigViewportsNoAutoMerge = true;
-	////io.ConfigViewportsNoTaskBarIcon = true;
 
 	// Setup Dear ImGui style
 	ImGui::StyleColorsDark();
 	//ImGui::StyleColorsClassic();
 
+	// Load fonts
 	io.Fonts->AddFontFromFileTTF( "../extern/FiraCode/distr/ttf/FiraCode-Medium.ttf", 16.0f );
 
-	//io.FontGlobalScale = 3.0f;
-	//ImGui::GetStyle().ScaleAllSizes( 3.0f );
+	// Setup DPI scaling (Win32 only) - following ImPlatform demo pattern
+	ImGuiStyle& style = ImGui::GetStyle();
+#if defined(IM_CURRENT_PLATFORM) && (IM_CURRENT_PLATFORM == IM_PLATFORM_WIN32)
+	float dpi_scale = ImPlatform_App_GetDpiScale_Win32();
+	style.ScaleAllSizes( dpi_scale );
+	style.FontScaleDpi = dpi_scale;
+#ifdef IMGUI_HAS_DOCK
+	io.ConfigDpiScaleFonts = true;
+#endif
+#ifdef IMGUI_HAS_VIEWPORT
+	io.ConfigDpiScaleViewports = true;
+#endif
+#endif
 
-	if ( !ImPlatform::SimpleInitialize( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable ) )
+	// When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones
+#ifdef IMGUI_HAS_VIEWPORT
+	if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
 	{
-		return 0;
+		style.WindowRounding = 0.0f;
+		style.Colors[ ImGuiCol_WindowBg ].w = 1.0f;
+	}
+#endif
+
+	// Initialize ImPlatform backends
+	bGood = ImPlatform_InitPlatform();
+	if ( !bGood )
+	{
+		fprintf( stderr, "ImPlatform: Cannot initialize platform.\n" );
+		return 1;
+	}
+
+	bGood = ImPlatform_InitGfx();
+	if ( !bGood )
+	{
+		fprintf( stderr, "ImPlatform: Cannot initialize graphics.\n" );
+		return 1;
 	}
 	
+	// Create ImWidgets context
 	ImWidgets::AddFeatures( ImWidgetsFeatures_Markers );
 	ImWidgetsContext* ctx = ImWidgets::CreateContext();
 
-	//ImGui::GetStyle().ScaleAllSizes();
-
-#ifdef IMGUI_HAS_VIEWPORT
-	// When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
-	ImGuiStyle& style = ImGui::GetStyle();
-	//if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-	//{
-	//	style.WindowRounding = 0.0f;
-	//	style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-	//}
-#endif
-
-	//// Image from: https://www.pexels.com/fr-fr/photo/framboises-mures-dans-une-tasse-de-the-blanche-en-photographie-a-decalage-d-inclinaison-1152351/
+	// Load test images
+	// Image from: https://www.pexels.com/fr-fr/photo/framboises-mures-dans-une-tasse-de-the-blanche-en-photographie-a-decalage-d-inclinaison-1152351/
 	illlustration_img = TextureFromFile( "pexels-robert-bogdan-156165-1152351.jpg", &illlustration_size );
 	// Image from: https://www.pexels.com/fr-fr/photo/deux-chaises-avec-table-en-verre-sur-le-salon-pres-de-la-fenetre-1571453/
 	background = TextureFromFile( "pexels-fotoaibe-1571453.jpg", &background_size );
@@ -241,19 +307,21 @@ int main()
 	ImWidgets::OwnTexture( man_img );
 
 	ImVec4 clear_color = ImVec4( 0.461f, 0.461f, 0.461f, 1.0f );
-	while ( ImPlatform::PlatformContinue() )
+	while ( ImPlatform_PlatformContinue() )
 	{
-		bool quit = ImPlatform::PlatformEvents();
-		if ( quit )
-			break;
+		ImPlatform_PlatformEvents();
 
-		if ( !ImPlatform::GfxCheck() )
+		if ( !ImPlatform_GfxCheck() )
 		{
 			continue;
 		}
 
-		ImPlatform::SimpleBegin();
+		// New frame
+		ImPlatform_GfxAPINewFrame();
+		ImPlatform_PlatformNewFrame();
+		ImGui::NewFrame();
 
+		// Render UI
 		ImWidgets::ShowSamples();
 		ImWidgets::ShowDemo();
 
@@ -262,11 +330,33 @@ int main()
 
 		ShowSampleOffscreen00();
 
-		ImPlatform::SimpleEnd( clear_color, io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable );
+		// Rendering
+		ImGui::Render();
+		ImPlatform_GfxAPIClear( clear_color );
+		ImPlatform_GfxAPIRender( clear_color );
+
+#ifdef IMGUI_HAS_VIEWPORT
+		// Update and Render additional Platform Windows
+		if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
+		{
+			ImPlatform_GfxViewportPre();
+			ImPlatform_GfxViewportPost();
+		}
+#endif
+
+		ImPlatform_GfxAPISwapBuffer();
 	}
 
+	// Cleanup
 	ImWidgets::DestroyContext( ctx );
-	ImPlatform::SimpleFinish();
+
+	ImPlatform_ShutdownGfxAPI();
+	ImPlatform_ShutdownWindow();
+	ImPlatform_ShutdownPostGfxAPI();
+
+	ImGui::DestroyContext();
+
+	ImPlatform_DestroyWindow();
 
 	return 0;
 }
@@ -289,7 +379,8 @@ void ShowSampleOffscreen00()
 	//					   cur + ImVec2( 0.0f + 50.0f, 50.0f ),
 	//					   ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, 255), 8);
 
-	ImWidgets::DrawMarker( draw, cur, size, IM_COL32_WHITE, IM_COL32_BLACK_TRANS, 0.0f, 1.0f, 10.0f, 0.5f, ImWidgetsMarker_Disc, ImWidgetsDrawType_Outline );
+	// TODO: Re-enable when DrawMarker is re-implemented with new ImPlatform shader API
+	// ImWidgets::DrawMarker( draw, cur, size, IM_COL32_WHITE, IM_COL32_BLACK_TRANS, 0.0f, 1.0f, 10.0f, 0.5f, ImWidgetsMarker_Disc, ImWidgetsDrawType_Outline );
 	ImGui::Dummy( size );
 
 	ImGui::End();
@@ -524,15 +615,19 @@ namespace ImWidgets {
 				ImDrawList* pDrawList = ImGui::GetWindowDrawList();
 				ImVec2 pos = ImGui::GetCursorScreenPos();
 				ImGui::Dummy( ImVec2( size, size ) );
-				DrawMarker( pDrawList, pos, ImVec2( size, size ),
-							fg_color_col,
-							bg_color_col,
-							angle,
-							shape_size,
-							line_width,
-							antialiasing,
-							( ImWidgetsMarker )marker_idx,
-							( ImWidgetsDrawType )draw_type_idx );
+				// TODO: Re-enable when DrawMarker is re-implemented with new ImPlatform shader API
+				// DrawMarker( pDrawList, pos, ImVec2( size, size ),
+				// 			fg_color_col,
+				// 			bg_color_col,
+				// 			angle,
+				// 			shape_size,
+				// 			line_width,
+				// 			antialiasing,
+				// 			( ImWidgetsMarker )marker_idx,
+				// 			( ImWidgetsDrawType )draw_type_idx );
+				(void)pDrawList; (void)pos; (void)fg_color_col; (void)bg_color_col;
+				(void)angle; (void)shape_size; (void)line_width; (void)antialiasing;
+				(void)marker_idx; (void)draw_type_idx;
 			}
 			if ( ImGui::CollapsingHeader( "Thick line", ImGuiTreeNodeFlags_DefaultOpen ) )
 			{
@@ -1731,13 +1826,15 @@ namespace ImWidgets {
 				static float value[ 3 ] = { 0.25f, 10.0f, 100.0f };
 				static float min = 0.1f;
 				static float max = 150.0f;
-				ImGui::SetWindowFontScale( 0.75f );
+				// TODO: SetWindowFontScale removed in new ImGui
+				// ImGui::SetWindowFontScale( 0.75f );
 				ImGui::Text( "Hover per region of influence" );
-				ImGui::SetWindowFontScale( 1.0f );
+				// ImGui::SetWindowFontScale( 1.0f );
 				ImWidgets::SliderNScalar( "Values##SliderNRegions", ImGuiDataType_Float, &value, 3, &min, &max, 8.0f, true );
-				ImGui::SetWindowFontScale( 0.75f );
+				// TODO: SetWindowFontScale removed in new ImGui
+				// ImGui::SetWindowFontScale( 0.75f );
 				ImGui::Text( "Global Hover" );
-				ImGui::SetWindowFontScale( 1.0f );
+				// ImGui::SetWindowFontScale( 1.0f );
 				ImWidgets::SliderNScalar( "Values##SliderNGlobal", ImGuiDataType_Float, &value, 3, &min, &max, 8.0f, false );
 				ImGui::DragFloat( "Near Plane", &value[ 0 ], 1.0f, min, value[ 1 ] );
 				ImGui::DragFloat( "Focal Planes", &value[ 1 ], 1.0f, value[ 0 ], value[ 2 ] );
@@ -1921,12 +2018,15 @@ namespace ImWidgets {
 					{
 						float cx = left + span*(a+0.5f);
 						bool up = (a%2)==0;
-						float start = up ? IM_PI : 0.0f;
-						float end   = up ? 2.0f*IM_PI : IM_PI;
+						// Up arc should go from 0..pi (bulge up), down arc pi..2pi
+						float start = up ? 0.0f : IM_PI;
+						float end   = up ? IM_PI : 2.0f*IM_PI;
 						for (int i = 0; i <= seg; ++i)
 						{
 							float t = (float)i/(float)seg;
 							float ang = ImLerp(start, end, t);
+							// Skip duplicate vertex between consecutive arcs
+							if (i==0 && a>0) continue;
 							pts_stack[idx++] = ImVec2(cx + cosf(ang)*r, cy + sinf(ang)*r);
 						}
 					}
@@ -2033,9 +2133,9 @@ namespace ImWidgets {
 				ImGui::DragFloat( "Cursor Height##HueSelector", &cursorHeight, 1.0f, 1.0f, 64.0f );
 
 				ImWidgets::GetStyle().PushVar( StyleVar_HueSelector_Thickness_ZeroWidth, 10.0f );
-				HueSelector( "Hue##HueSelector", hueHeight, cursorHeight, &hueCenter, &hueWidth, &featherLeft, &featherRight, division, alphaHue, alphaHideHue, offset );
+				HueSelector( "Hue 0##HueSelector", hueHeight, cursorHeight, &hueCenter, &hueWidth, &featherLeft, &featherRight, division, alphaHue, alphaHideHue, offset );
 				ImWidgets::GetStyle().PopVar();
-				HueSelector( "Hue##HueSelector", hueHeight, cursorHeight, &hueCenter, &hueWidth, &featherLeft, &featherRight, division, alphaHue, alphaHideHue, offset );
+				HueSelector( "Hue 1##HueSelector", hueHeight, cursorHeight, &hueCenter, &hueWidth, &featherLeft, &featherRight, division, alphaHue, alphaHideHue, offset );
 			}
 			if ( ImGui::CollapsingHeader( "Slider2D Float" ) )
 			{
@@ -2059,4 +2159,4 @@ namespace ImWidgets {
 	}
 }
 
-#include <imgui/imgui_demo.cpp>
+#include <imgui_demo.cpp>

@@ -14,12 +14,23 @@ namespace DearWidgets
             Name = "DearWidgetsDemo";
             SourceRootPath = RootPath + @"\src\demo";
 
-            SourceFiles.Add("[project.ExternPath]/imgui/imgui.cpp");
-            SourceFiles.Add("[project.ExternPath]/imgui/imgui_tables.cpp");
-            SourceFiles.Add("[project.ExternPath]/imgui/imgui_widgets.cpp");
-            SourceFiles.Add("[project.ExternPath]/imgui/misc/cpp/imgui_stdlib.cpp");
-            SourceFiles.Add("[project.ExternPath]/imgui/imgui_draw.cpp");
+            // Use ImPlatform's bundled ImGui instead of the main extern/imgui
+            SourceFiles.Add("[project.ExternPath]/ImPlatform/imgui/imgui.cpp");
+            SourceFiles.Add("[project.ExternPath]/ImPlatform/imgui/imgui_tables.cpp");
+            SourceFiles.Add("[project.ExternPath]/ImPlatform/imgui/imgui_widgets.cpp");
+            SourceFiles.Add("[project.ExternPath]/ImPlatform/imgui/misc/cpp/imgui_stdlib.cpp");
+            SourceFiles.Add("[project.ExternPath]/ImPlatform/imgui/imgui_draw.cpp");
             SourceFiles.Add("[project.ExternPath]/ImPlatform/ImPlatform/ImPlatform.h");
+
+            // Add ImGui backend implementations from ImPlatform
+            // These are added unconditionally but only the relevant ones will be compiled based on the target API
+            SourceFiles.Add("[project.ExternPath]/ImPlatform/imgui/backends/imgui_impl_dx9.cpp");
+            SourceFiles.Add("[project.ExternPath]/ImPlatform/imgui/backends/imgui_impl_dx10.cpp");
+            SourceFiles.Add("[project.ExternPath]/ImPlatform/imgui/backends/imgui_impl_dx11.cpp");
+            SourceFiles.Add("[project.ExternPath]/ImPlatform/imgui/backends/imgui_impl_dx12.cpp");
+            SourceFiles.Add("[project.ExternPath]/ImPlatform/imgui/backends/imgui_impl_opengl3.cpp");
+            SourceFiles.Add("[project.ExternPath]/ImPlatform/imgui/backends/imgui_impl_vulkan.cpp");
+            SourceFiles.Add("[project.ExternPath]/ImPlatform/imgui/backends/imgui_impl_win32.cpp");
         }
 
         [Configure()]
@@ -30,41 +41,40 @@ namespace DearWidgets
 			conf.TargetPath = RootPath + "/WorkingDir";
 
             conf.IncludePaths.Add(@"[project.RootPath]/src/demo/");
-            conf.IncludePaths.Add(@"[project.RootPath]/extern/stb/");
-            conf.IncludePaths.Add(@"[project.RootPath]/extern/imgui/");
-            conf.IncludePaths.Add(@"[project.RootPath]/extern/imgui/examples/libs/glfw/include/");
-            conf.LibraryPaths.Add(@"[project.RootPath]/extern/imgui/examples/libs/glfw/");
-            conf.IncludePaths.Add(@"[project.RootPath]/extern/imgui/backends/");
+            // Use ImPlatform's bundled ImGui
+            conf.IncludePaths.Add(@"[project.RootPath]/extern/ImPlatform/imgui/");
+            conf.IncludePaths.Add(@"[project.RootPath]/extern/ImPlatform/imgui/backends/");
             conf.IncludePaths.Add(@"[project.RootPath]/extern/ImPlatform/ImPlatform/");
-            //conf.IncludePrivatePaths.Add(@"[project.RootPath]\codebase\SpanMultipleSrcDirs\dir_individual_files");
-            //conf.AddPrivateDependency<CoreProject>(target);
-
-            //if (target.Api == TargetAPI.D3D9)
-            //{
-            //    conf.LibraryFiles.Add("opengl32.lib");
-            //}
-            //if (target.Api == TargetAPI.D3D9)
-            //{
-            //    conf.LibraryFiles.Add("d3d9.lib");
-            //}
-            //if (target.Api == TargetAPI.D3D10)
-            //{
-            //    conf.LibraryFiles.Add("d3d10.lib");
-            //    conf.LibraryFiles.Add("d3dcompiler.lib");
-            //    conf.LibraryFiles.Add("dxgi.lib");
-            //}
-            //if (target.Api == TargetAPI.D3D11)
-            //{
-            //    conf.LibraryFiles.Add("d3d11.lib");
-            //    conf.LibraryFiles.Add("d3dcompiler.lib");
-            //    conf.LibraryFiles.Add("dxgi.lib");
-            //}
-            //if (target.Api == TargetAPI.D3D11)
-            //{
-            //    conf.LibraryFiles.Add("d3d12.lib");
-            //    conf.LibraryFiles.Add("d3dcompiler.lib");
-            //    conf.LibraryFiles.Add("dxgi.lib");
-            //}
+            // Add specific extern paths as needed
+            conf.IncludePaths.Add(@"[project.RootPath]/extern/stb/");
+            conf.IncludePaths.Add(@"[project.RootPath]/extern/");
+            // Add graphics API libraries
+            if (target.Api == TargetAPI.D3D9)
+            {
+                conf.LibraryFiles.Add("d3d9.lib");
+            }
+            if (target.Api == TargetAPI.D3D10)
+            {
+                conf.LibraryFiles.Add("d3d10.lib");
+                conf.LibraryFiles.Add("d3dcompiler.lib");
+                conf.LibraryFiles.Add("dxgi.lib");
+            }
+            if (target.Api == TargetAPI.D3D11)
+            {
+                conf.LibraryFiles.Add("d3d11.lib");
+                conf.LibraryFiles.Add("d3dcompiler.lib");
+                conf.LibraryFiles.Add("dxgi.lib");
+            }
+            if (target.Api == TargetAPI.D3D12)
+            {
+                conf.LibraryFiles.Add("d3d12.lib");
+                conf.LibraryFiles.Add("d3dcompiler.lib");
+                conf.LibraryFiles.Add("dxgi.lib");
+            }
+            if (target.Api == TargetAPI.OpenGL3)
+            {
+                conf.LibraryFiles.Add("opengl32.lib");
+            }
 
 			conf.VcxprojUserFile = new Configuration.VcxprojUserFileSettings();
 			conf.VcxprojUserFile.LocalDebuggerWorkingDirectory = @"[project.RootPath]/WorkingDir/";
