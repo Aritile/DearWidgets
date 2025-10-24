@@ -75,7 +75,7 @@ namespace DearWidgets
 			CustomProperties.Add( "VcpkgEnabled", "false" );
 
 			AddTargets(new DearTarget(	Platform.win64 | Platform.linux,// | Platform.mac,
-										TargetAPI.OpenGL3 | TargetAPI.D3D9 | TargetAPI.D3D10 | TargetAPI.D3D11 | TargetAPI.D3D12,
+										TargetAPI.OpenGL3 | TargetAPI.D3D11 | TargetAPI.D3D12,
 										Optimization.Debug | Optimization.Release,
 										BuildType.APIOnly | BuildType.DemoOnly | BuildType.Full ) );
 		}
@@ -94,15 +94,17 @@ namespace DearWidgets
 
 			conf.IncludePaths.Add(@"[project.RootPath]\src\api");
 			conf.IncludePaths.Add(@"[project.RootPath]\");
-			conf.IncludePaths.Add(@"[project.ExternPath]");
+			// Don't include entire extern path to avoid ImGui conflicts
+			// Add specific paths as needed instead
+			//conf.IncludePaths.Add(@"[project.ExternPath]");
 
 			conf.Defines.Add("ImDrawIdx=ImU32");
 			conf.Defines.Add("IMGUI_DEFINE_MATH_OPERATORS");
 			conf.Defines.Add("IMGUI_DISABLE_OBSOLETE_FUNCTIONS");
 			conf.Defines.Add( "NOMINMAX" );
 			conf.Defines.Add( "DEAR_WIDGETS_TESSELATION" );
-            //conf.IncludePaths.Add(@"[project.ExternPath]/imgui/");
-            conf.IncludePaths.Add(@"[project.RootPath]/extern/imgui/");
+            // Use ImPlatform's bundled ImGui for compatibility
+            conf.IncludePaths.Add(@"[project.RootPath]/extern/ImPlatform/imgui/");
 			conf.IncludePaths.Add(@"[project.ExternPath]/glad/include");
 
 			//conf.Defines.Add("_CRT_SECURE_NO_WARNINGS");
@@ -169,8 +171,8 @@ namespace DearWidgets
 			conf.Options.Add(Sharpmake.Options.Vc.Linker.RandomizedBaseAddress.Disable);
 			conf.LibraryFiles.Add("winmm.lib");
 			conf.LibraryFiles.Add("comctl32.lib");
-			conf.LibraryFiles.Add("msvcrt.lib");
-			conf.LibraryFiles.Add("msvcmrt.lib");
+			// Removed msvcrt.lib - incompatible with /MT static runtime
+			// Removed msvcmrt.lib - incompatible with /MT static runtime
 			conf.Defines.Add("_CRT_SECURE_NO_WARNINGS");
 		}
 

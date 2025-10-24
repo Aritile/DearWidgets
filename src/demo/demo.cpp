@@ -1,23 +1,38 @@
 #include <demo.h>
 
-//#if defined(__DEAR_GFX_OGL3__)
-//#define IM_GLFW3_AUTO_LINK
-//#define IM_CURRENT_TARGET IM_TARGET_WIN32_OPENGL3
-//#elif defined(__DEAR_GFX_DX9__)
-//#define IM_CURRENT_TARGET IM_TARGET_WIN32_DX9
-//#elif defined(__DEAR_GFX_DX10__)
-//#define IM_CURRENT_TARGET IM_TARGET_WIN32_DX10
-//#elif defined(__DEAR_GFX_DX11__)
-//#define IM_CURRENT_TARGET IM_TARGET_WIN32_DX11
-//#elif defined(__DEAR_GFX_DX12__)
-//#define IM_CURRENT_TARGET IM_TARGET_WIN32_DX12
-//#endif
-#define IM_PLATFORM_IMPLEMENTATION
+#define IMGUI_DEFINE_MATH_OPERATORS
+
+// Map project-specific graphics API defines to ImPlatform defines
+#if defined(__DEAR_GFX_DX9__)
+	#define IM_CURRENT_PLATFORM IM_PLATFORM_WIN32
+	#define IM_CURRENT_GFX IM_GFX_DIRECTX9
+#elif defined(__DEAR_GFX_DX10__)
+	#define IM_CURRENT_PLATFORM IM_PLATFORM_WIN32
+	#define IM_CURRENT_GFX IM_GFX_DIRECTX10
+#elif defined(__DEAR_GFX_DX11__)
+	#define IM_CURRENT_PLATFORM IM_PLATFORM_WIN32
+	#define IM_CURRENT_GFX IM_GFX_DIRECTX11
+#elif defined(__DEAR_GFX_DX12__)
+	#define IM_CURRENT_PLATFORM IM_PLATFORM_WIN32
+	#define IM_CURRENT_GFX IM_GFX_DIRECTX12
+#elif defined(__DEAR_GFX_OGL3__)
+	#define IM_CURRENT_PLATFORM IM_PLATFORM_WIN32
+	#define IM_CURRENT_GFX IM_GFX_OPENGL3
+#elif defined(__DEAR_GFX_VULKAN__)
+	#define IM_CURRENT_PLATFORM IM_PLATFORM_WIN32
+	#define IM_CURRENT_GFX IM_GFX_VULKAN
+#else
+	#error "No graphics API defined. Expected __DEAR_GFX_* define"
+#endif
+
+// Define Implementation and include ImPlatform
+// This will include the ImPlatform backend code which references the ImGui backends above
+#define IMPLATFORM_IMPLEMENTATION
 #include <ImPlatform.h>
 
 #include <dear_widgets.h>
 #include <imgui_internal.h>
-#include <imgui/misc/cpp/imgui_stdlib.h>
+#include <misc/cpp/imgui_stdlib.h>
 
 #include <vector>
 #include <random>
@@ -74,23 +89,20 @@
 //	}
 //};
 
-ImTextureID TextureFromFile(	char const* filename, ImVec2* img_size,
-								ImTextureFiltering const filtering = ImTextureFiltering_Linear,
-								ImTextureBoundary const boundarires = ImTextureBoundary_Clamp )
+ImTextureID TextureFromFile( char const* filename, ImVec2* img_size )
 {
 	int width;
 	int height;
 	ImTextureID img;
 
 	stbi_uc* data = stbi_load( filename, &width, &height, NULL, 4 );
-	img = ImPlatform::CreateTexture2D(	( char* )data, width, height,
-										{
-											ImPixelChannel_RGBA,
-											ImPixelType_UInt8,
-											filtering,
-											boundarires,
-											boundarires
-										} );
+	if ( !data )
+		return ImTextureID_Invalid;
+
+	// Use new ImPlatform C API for texture creation
+	ImPlatform_TextureDesc tex_desc = ImPlatform_TextureDesc_Default( width, height );
+	img = ImPlatform_CreateTexture( data, &tex_desc );
+
 	img_size->x = ( float )width;
 	img_size->y = ( float )height;
 	STBI_FREE( data );
@@ -126,10 +138,11 @@ ImVec2 TemperatureTo_xy( float TT )
 	return ImVec2( xc, yc );
 }
 
-static inline ImVec4 operator*( const ImVec4& lhs, const float rhs )
-{
-	return ImVec4( lhs.x * rhs, lhs.y * rhs, lhs.z * rhs, lhs.w * rhs );
-}
+// ImVec4 operator* is now provided by IMGUI_DEFINE_MATH_OPERATORS
+// static inline ImVec4 operator*( const ImVec4& lhs, const float rhs )
+// {
+// 	return ImVec4( lhs.x * rhs, lhs.y * rhs, lhs.z * rhs, lhs.w * rhs );
+// }
 
 #pragma region ShaderToyHelper
 // Ref: https://www.shadertoy.com/view/WlSGW1
@@ -178,53 +191,106 @@ ImTextureID man_img;
 ImVec2 man_size;
 int main()
 {
-	if ( !ImPlatform::SimpleStart( "Dear Widgets Demo", ImVec2( 0.0f, 0.0f ), 1024, 764 * 2 ) )
+	// Using the new ImPlatform C API - following ImPlatform demo pattern
+	bool bGood;
+
+	// Create window
+	bGood = ImPlatform_CreateWindow( "Dear Widgets Demo", ImVec2( 100.0f, 100.0f ), 1024, 764 * 2 );
+	if ( !bGood )
+	{
+		fprintf( stderr, "ImPlatform: Cannot create window.\n" );
 		return 1;
+	}
+
+	// Initialize Graphics API
+	bGood = ImPlatform_InitGfxAPI();
+	if ( !bGood )
+	{
+		fprintf( stderr, "ImPlatform: Cannot initialize the Graphics API.\n" );
+		return 1;
+	}
+
+	// Show window
+	bGood = ImPlatform_ShowWindow();
+	if ( !bGood )
+	{
+		fprintf( stderr, "ImPlatform: Cannot show the window.\n" );
+		return 1;
+	}
 
 	// Setup Dear ImGui context
+	IMGUI_CHECKVERSION();
+	bGood = ImGui::CreateContext() != nullptr;
+	if ( !bGood )
+	{
+		fprintf( stderr, "ImGui: Cannot create context.\n" );
+		return 1;
+	}
+
+	// Setup Dear ImGui IO
 	ImGuiIO& io = ImGui::GetIO(); ( void )io;
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;		// Enable Keyboard Controls
-	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;	// Enable Gamepad Controls
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;		// Enable Gamepad Controls
 #ifdef IMGUI_HAS_DOCK
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;			// Enable Docking
 #endif
 #ifdef IMGUI_HAS_VIEWPORT
-	// TODO: Fix cf. ImPlatform
-	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;		// Enable Multi-Viewport / Platform Windows
+	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;			// Enable Multi-Viewport / Platform Windows
+	//io.ConfigViewportsNoAutoMerge = true;
+	//io.ConfigViewportsNoTaskBarIcon = true;
 #endif
-	////io.ConfigViewportsNoAutoMerge = true;
-	////io.ConfigViewportsNoTaskBarIcon = true;
 
 	// Setup Dear ImGui style
 	ImGui::StyleColorsDark();
 	//ImGui::StyleColorsClassic();
 
+	// Load fonts
 	io.Fonts->AddFontFromFileTTF( "../extern/FiraCode/distr/ttf/FiraCode-Medium.ttf", 16.0f );
 
-	//io.FontGlobalScale = 3.0f;
-	//ImGui::GetStyle().ScaleAllSizes( 3.0f );
+	// Setup DPI scaling (Win32 only) - following ImPlatform demo pattern
+	ImGuiStyle& style = ImGui::GetStyle();
+#if defined(IM_CURRENT_PLATFORM) && (IM_CURRENT_PLATFORM == IM_PLATFORM_WIN32)
+	float dpi_scale = ImPlatform_App_GetDpiScale_Win32();
+	style.ScaleAllSizes( dpi_scale );
+	style.FontScaleDpi = dpi_scale;
+#ifdef IMGUI_HAS_DOCK
+	io.ConfigDpiScaleFonts = true;
+#endif
+#ifdef IMGUI_HAS_VIEWPORT
+	io.ConfigDpiScaleViewports = true;
+#endif
+#endif
 
-	if ( !ImPlatform::SimpleInitialize( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable ) )
+	// When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones
+#ifdef IMGUI_HAS_VIEWPORT
+	if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
 	{
-		return 0;
+		style.WindowRounding = 0.0f;
+		style.Colors[ ImGuiCol_WindowBg ].w = 1.0f;
+	}
+#endif
+
+	// Initialize ImPlatform backends
+	bGood = ImPlatform_InitPlatform();
+	if ( !bGood )
+	{
+		fprintf( stderr, "ImPlatform: Cannot initialize platform.\n" );
+		return 1;
+	}
+
+	bGood = ImPlatform_InitGfx();
+	if ( !bGood )
+	{
+		fprintf( stderr, "ImPlatform: Cannot initialize graphics.\n" );
+		return 1;
 	}
 	
+	// Create ImWidgets context
 	ImWidgets::AddFeatures( ImWidgetsFeatures_Markers );
 	ImWidgetsContext* ctx = ImWidgets::CreateContext();
 
-	//ImGui::GetStyle().ScaleAllSizes();
-
-#ifdef IMGUI_HAS_VIEWPORT
-	// When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
-	ImGuiStyle& style = ImGui::GetStyle();
-	//if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-	//{
-	//	style.WindowRounding = 0.0f;
-	//	style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-	//}
-#endif
-
-	//// Image from: https://www.pexels.com/fr-fr/photo/framboises-mures-dans-une-tasse-de-the-blanche-en-photographie-a-decalage-d-inclinaison-1152351/
+	// Load test images
+	// Image from: https://www.pexels.com/fr-fr/photo/framboises-mures-dans-une-tasse-de-the-blanche-en-photographie-a-decalage-d-inclinaison-1152351/
 	illlustration_img = TextureFromFile( "pexels-robert-bogdan-156165-1152351.jpg", &illlustration_size );
 	// Image from: https://www.pexels.com/fr-fr/photo/deux-chaises-avec-table-en-verre-sur-le-salon-pres-de-la-fenetre-1571453/
 	background = TextureFromFile( "pexels-fotoaibe-1571453.jpg", &background_size );
@@ -241,19 +307,21 @@ int main()
 	ImWidgets::OwnTexture( man_img );
 
 	ImVec4 clear_color = ImVec4( 0.461f, 0.461f, 0.461f, 1.0f );
-	while ( ImPlatform::PlatformContinue() )
+	while ( ImPlatform_PlatformContinue() )
 	{
-		bool quit = ImPlatform::PlatformEvents();
-		if ( quit )
-			break;
+		ImPlatform_PlatformEvents();
 
-		if ( !ImPlatform::GfxCheck() )
+		if ( !ImPlatform_GfxCheck() )
 		{
 			continue;
 		}
 
-		ImPlatform::SimpleBegin();
+		// New frame
+		ImPlatform_GfxAPINewFrame();
+		ImPlatform_PlatformNewFrame();
+		ImGui::NewFrame();
 
+		// Render UI
 		ImWidgets::ShowSamples();
 		ImWidgets::ShowDemo();
 
@@ -262,11 +330,33 @@ int main()
 
 		ShowSampleOffscreen00();
 
-		ImPlatform::SimpleEnd( clear_color, io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable );
+		// Rendering
+		ImGui::Render();
+		ImPlatform_GfxAPIClear( clear_color );
+		ImPlatform_GfxAPIRender( clear_color );
+
+#ifdef IMGUI_HAS_VIEWPORT
+		// Update and Render additional Platform Windows
+		if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
+		{
+			ImPlatform_GfxViewportPre();
+			ImPlatform_GfxViewportPost();
+		}
+#endif
+
+		ImPlatform_GfxAPISwapBuffer();
 	}
 
+	// Cleanup
 	ImWidgets::DestroyContext( ctx );
-	ImPlatform::SimpleFinish();
+
+	ImPlatform_ShutdownGfxAPI();
+	ImPlatform_ShutdownWindow();
+	ImPlatform_ShutdownPostGfxAPI();
+
+	ImGui::DestroyContext();
+
+	ImPlatform_DestroyWindow();
 
 	return 0;
 }
@@ -289,7 +379,8 @@ void ShowSampleOffscreen00()
 	//					   cur + ImVec2( 0.0f + 50.0f, 50.0f ),
 	//					   ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, 255), 8);
 
-	ImWidgets::DrawMarker( draw, cur, size, IM_COL32_WHITE, IM_COL32_BLACK_TRANS, 0.0f, 1.0f, 10.0f, 0.5f, ImWidgetsMarker_Disc, ImWidgetsDrawType_Outline );
+	// TODO: Re-enable when DrawMarker is re-implemented with new ImPlatform shader API
+	// ImWidgets::DrawMarker( draw, cur, size, IM_COL32_WHITE, IM_COL32_BLACK_TRANS, 0.0f, 1.0f, 10.0f, 0.5f, ImWidgetsMarker_Disc, ImWidgetsDrawType_Outline );
 	ImGui::Dummy( size );
 
 	ImGui::End();
@@ -524,15 +615,19 @@ namespace ImWidgets {
 				ImDrawList* pDrawList = ImGui::GetWindowDrawList();
 				ImVec2 pos = ImGui::GetCursorScreenPos();
 				ImGui::Dummy( ImVec2( size, size ) );
-				DrawMarker( pDrawList, pos, ImVec2( size, size ),
-							fg_color_col,
-							bg_color_col,
-							angle,
-							shape_size,
-							line_width,
-							antialiasing,
-							( ImWidgetsMarker )marker_idx,
-							( ImWidgetsDrawType )draw_type_idx );
+				// TODO: Re-enable when DrawMarker is re-implemented with new ImPlatform shader API
+				// DrawMarker( pDrawList, pos, ImVec2( size, size ),
+				// 			fg_color_col,
+				// 			bg_color_col,
+				// 			angle,
+				// 			shape_size,
+				// 			line_width,
+				// 			antialiasing,
+				// 			( ImWidgetsMarker )marker_idx,
+				// 			( ImWidgetsDrawType )draw_type_idx );
+				(void)pDrawList; (void)pos; (void)fg_color_col; (void)bg_color_col;
+				(void)angle; (void)shape_size; (void)line_width; (void)antialiasing;
+				(void)marker_idx; (void)draw_type_idx;
 			}
 			if ( ImGui::CollapsingHeader( "Thick line", ImGuiTreeNodeFlags_DefaultOpen ) )
 			{
@@ -569,6 +664,68 @@ namespace ImWidgets {
 				ImGui::Dummy( ImVec2( size, size ) );
 			}
 #endif
+			if ( ImGui::CollapsingHeader( "Draw Squircle" ) )
+			{
+				float const size = ImGui::GetContentRegionAvail().x;
+				ImDrawList* pDrawList = ImGui::GetWindowDrawList();
+				static float edge_thickness = 2.0f;
+				static float vertex_radius = 16.0f;
+				static ImVec4 edge_col_v( 1.0f, 0.0f, 0.0f, 1.0f );
+				static ImVec4 triangle_col_v( 0.0f, 1.0f, 0.0f, 1.0f );
+				static ImVec4 vertex_col_v( 0.0f, 0.0f, 1.0f, 1.0f );
+				static ImU32 edge_col = ImGui::GetColorU32( edge_col_v );
+				static ImU32 triangle_col = ImGui::GetColorU32( triangle_col_v );
+				static ImU32 vertex_col = ImGui::GetColorU32( vertex_col_v );
+				static ImVec2 uv_start( 0.0f, 0.5f );
+				static ImVec2 uv_end( 1.0f, 0.5f );
+				static ImVec4 cola_v( 1.0f, 0.0f, 0.0f, 1.0f );
+				static ImVec4 colb_v( 0.0f, 1.0f, 0.0f, 1.0f );
+				static ImU32 cola = ImGui::GetColorU32( cola_v );
+				static ImU32 colb = ImGui::GetColorU32( colb_v );
+				static int tri_idx = -1;
+				static int side_count = 32;
+				static float squircle_n = 4.0f;
+#ifdef DEAR_WIDGETS_TESSELATION
+				static int tess = 1;
+				ImGui::SliderInt( "Tess", &tess, 0, 16 );
+#endif
+				ImGui::SliderInt( "Sides", &side_count, 8, 128 );
+				ImGui::SliderFloat( "Squircle n", &squircle_n, 2.0f, 10.0f );
+				ImGui::SliderFloat( "Thickness", &edge_thickness, 0.0f, 16.0f );
+				ImGui::SliderFloat( "Radius", &vertex_radius, 0.0f, 64.0f );
+				if ( ImGui::ColorEdit4( "Edge##DrawSquircle", &edge_col_v.x ) )
+					edge_col = ImGui::GetColorU32( edge_col_v );
+				if ( ImGui::ColorEdit4( "Triangle##DrawSquircle", &triangle_col_v.x ) )
+					triangle_col = ImGui::GetColorU32( triangle_col_v );
+				if ( ImGui::ColorEdit4( "Vertices##DrawSquircle", &vertex_col_v.x ) )
+					vertex_col = ImGui::GetColorU32( vertex_col_v );
+				ImGui::PushMultiItemsWidths( 2, ImGui::CalcItemWidth() );
+				Slider2DFloat( "uv0", &uv_start.x, &uv_start.y, 0.0f, 1.0f, 0.0f, 1.0f );
+				ImGui::SameLine();
+				Slider2DFloat( "uv1", &uv_end.x, &uv_end.y, 0.0f, 1.0f, 0.0f, 1.0f );
+				ImGui::PushMultiItemsWidths( 2, ImGui::CalcItemWidth() );
+				if ( ImGui::ColorEdit4( "ColA##DrawSquircle", &cola_v.x ) )
+					cola = ImGui::GetColorU32( cola_v );
+				ImGui::SameLine();
+				if ( ImGui::ColorEdit4( "ColB##DrawSquircle", &colb_v.x ) )
+					colb = ImGui::GetColorU32( colb_v );
+				ImVec2 pos = ImGui::GetCursorScreenPos();
+				static ImWidgetsShape shape;
+				GenShapeSquircle( shape, pos + ImVec2( size * 0.5f, size * 0.5f ), size * 0.4f, side_count, squircle_n );
+				ShapeSetDefaultUV( shape );
+#ifdef DEAR_WIDGETS_TESSELATION
+				for ( int k = 0; k < tess; ++k )
+					ShapeTesselationUniform( shape );
+#endif
+				ShapeSRGBLinearGradient( shape,
+										 uv_start, uv_end,
+										 cola, colb );
+				DrawShapeDebug( pDrawList, shape, edge_thickness, edge_col, triangle_col, vertex_radius, vertex_col, tri_idx );
+				ImGui::Dummy( ImVec2( size, size ) );
+				ImGui::SliderInt( "tri_idx", &tri_idx, -1, shape.triangles.size() - 1 );
+				ImGui::Text( "Tri: %d", shape.triangles.size() );
+				ImGui::Text( "Vtx: %d", shape.vertices.size() );
+			}
 			if ( ImGui::CollapsingHeader( "Linear Gradient" ) )
 			{
 				float const size = ImGui::GetContentRegionAvail().x;
@@ -1656,7 +1813,7 @@ namespace ImWidgets {
 				ImGui::Text( "Value: %d", value );
 				value += ( int )ImWidgets::ButtonExCircle( caption.c_str(), radius, 0 );
 			}
-			if ( ImGui::CollapsingHeader( "Button Capsule", ImGuiTreeNodeFlags_DefaultOpen ) )
+			if ( ImGui::CollapsingHeader( "Button Capsule" ) )
 			{
 				ImDrawList* pDrawList = ImGui::GetWindowDrawList();
 				float const size = ImGui::GetContentRegionAvail().x;
@@ -1731,17 +1888,279 @@ namespace ImWidgets {
 				static float value[ 3 ] = { 0.25f, 10.0f, 100.0f };
 				static float min = 0.1f;
 				static float max = 150.0f;
-				ImGui::SetWindowFontScale( 0.75f );
+				// TODO: SetWindowFontScale removed in new ImGui
+				// ImGui::SetWindowFontScale( 0.75f );
 				ImGui::Text( "Hover per region of influence" );
-				ImGui::SetWindowFontScale( 1.0f );
+				// ImGui::SetWindowFontScale( 1.0f );
 				ImWidgets::SliderNScalar( "Values##SliderNRegions", ImGuiDataType_Float, &value, 3, &min, &max, 8.0f, true );
-				ImGui::SetWindowFontScale( 0.75f );
+				// TODO: SetWindowFontScale removed in new ImGui
+				// ImGui::SetWindowFontScale( 0.75f );
 				ImGui::Text( "Global Hover" );
-				ImGui::SetWindowFontScale( 1.0f );
+				// ImGui::SetWindowFontScale( 1.0f );
 				ImWidgets::SliderNScalar( "Values##SliderNGlobal", ImGuiDataType_Float, &value, 3, &min, &max, 8.0f, false );
 				ImGui::DragFloat( "Near Plane", &value[ 0 ], 1.0f, min, value[ 1 ] );
 				ImGui::DragFloat( "Focal Planes", &value[ 1 ], 1.0f, value[ 0 ], value[ 2 ] );
 				ImGui::DragFloat( "Far Planes", &value[ 2 ], 1.0f, value[ 1 ], max );
+			}
+			if ( ImGui::CollapsingHeader( "Dashed Polylines", ImGuiTreeNodeFlags_DefaultOpen ) )
+			{
+				ImDrawList* dl = ImGui::GetWindowDrawList();
+				float avail = ImGui::GetContentRegionAvail().x;
+				float height = 220.0f;
+				ImVec2 origin = ImGui::GetCursorScreenPos();
+				ImGui::InvisibleButton("##zone_dashed_poly", ImVec2(avail, height));
+
+				static float thickness = 6.0f;
+				static float dash_len = 24.0f;
+				static float gap_len  = 12.0f;
+				static float offset   = 0.0f;
+				static bool  animate   = false;
+				static bool  closed    = false;
+				static int   cap_idx   = (int)ImWidgetsCap_Butt;
+				static int   join_idx  = (int)ImWidgetsJoin_Mitter;
+				static float miter_limit = 4.0f;
+				static int   path_type = 1; // 0=ZigZag, 1=Sine, 2=Spiral, 3=RoundedRect, 4=Circle, 5=Infinity, 6=Rose, 7=Heart, 8=Sawtooth, 9=ArcChain, 10=Star, 11=BezierS
+				const char* caps[] = { "None", "Butt", "Square", "Round", "TriangleOut", "TriangleIn" };
+				const char* joins[] = { "Round", "Mitter", "Bevel" };
+				const char* paths[] = { "ZigZag", "Sine", "Spiral", "RoundedRect", "Circle", "Infinity", "Rose (k=5)", "Heart", "Sawtooth", "Arc Chain", "Star", "Bezier S" };
+				ImGui::SetCursorScreenPos(origin + ImVec2(8, 6));
+				dl->AddRect(origin, origin + ImVec2(avail, height), IM_COL32(64,64,64,255));
+
+				// Build path
+				ImVec2 pts_stack[256];
+				ImVec2* pts = pts_stack;
+				int pts_count = 0;
+				float left = origin.x + 16.0f;
+				float right = origin.x + avail - 16.0f;
+				float top = origin.y + 24.0f;
+				float bottom = origin.y + height - 24.0f;
+				float midx = (left + right) * 0.5f;
+				if (path_type == 0)
+				{
+					pts_stack[0] = ImVec2(left, top);
+					pts_stack[1] = ImVec2(midx, bottom);
+					pts_stack[2] = ImVec2(right, top);
+					pts_stack[3] = ImVec2(midx, top + (bottom-top)*0.5f);
+					pts_stack[4] = ImVec2(left, bottom);
+					pts_stack[5] = ImVec2(midx, top + (bottom-top)*0.25f);
+					pts_stack[6] = ImVec2(right, bottom);
+					pts_count = 7;
+				}
+				else if (path_type == 1)
+				{
+					// Sine path across the rect
+					int N = 64;
+					for (int i = 0; i < N; ++i)
+					{
+						float t = (float)i / (float)(N - 1);
+						float x = ImLerp(left, right, t);
+						float y = ImLerp(top + (bottom-top)*0.2f, bottom - (bottom-top)*0.2f, 0.5f + 0.4f * sinf(t * 4.0f * IM_PI));
+						pts_stack[i] = ImVec2(x, y);
+					}
+					pts_count = N;
+				}
+				else if (path_type == 2)
+				{
+					// Spiral path centered in the rect
+					int N = 96;
+					ImVec2 center = ImVec2((left + right) * 0.5f, (top + bottom) * 0.5f);
+					float rx = (right - left) * 0.45f;
+					float ry = (bottom - top) * 0.45f;
+					for (int i = 0; i < N; ++i)
+					{
+						float t = (float)i / (float)(N - 1);
+						float ang = t * 4.0f * IM_PI;
+						float r = 0.1f + 0.9f * t; // from center outward
+						float x = center.x + cosf(ang) * rx * r;
+						float y = center.y + sinf(ang) * ry * r;
+						pts_stack[i] = ImVec2(x, y);
+					}
+					pts_count = N;
+				}
+				else if (path_type == 3)
+				{
+					// Rounded rectangle inside the zone
+					float pad = 28.0f;
+					ImVec2 pmin(left + pad, top + pad);
+					ImVec2 pmax(right - pad, bottom - pad);
+					float rx = (pmax.x - pmin.x) * 0.18f;
+					float ry = (pmax.y - pmin.y) * 0.18f;
+					int seg = 12;
+					int idx = 0;
+					// Top-right corner arc
+					for (int i = 0; i <= seg; ++i) { float a = IM_PI * 1.5f + (float)i/seg * IM_PI*0.5f; pts_stack[idx++] = ImVec2(pmax.x - rx + cosf(a)*rx, pmin.y + ry + sinf(a)*ry); }
+					// Bottom-right
+					for (int i = 0; i <= seg; ++i) { float a = 0.0f + (float)i/seg * IM_PI*0.5f;  pts_stack[idx++] = ImVec2(pmax.x - rx + cosf(a)*rx, pmax.y - ry + sinf(a)*ry); }
+					// Bottom-left
+					for (int i = 0; i <= seg; ++i) { float a = IM_PI*0.5f + (float)i/seg * IM_PI*0.5f; pts_stack[idx++] = ImVec2(pmin.x + rx + cosf(a)*rx, pmax.y - ry + sinf(a)*ry); }
+					// Top-left
+					for (int i = 0; i <= seg; ++i) { float a = IM_PI + (float)i/seg * IM_PI*0.5f;   pts_stack[idx++] = ImVec2(pmin.x + rx + cosf(a)*rx, pmin.y + ry + sinf(a)*ry); }
+					pts_count = idx;
+				}
+				else if (path_type == 4)
+				{
+					// Circle
+					ImVec2 c((left+right)*0.5f, (top+bottom)*0.5f);
+					float r = ImMin((right-left), (bottom-top)) * 0.35f;
+					int N = 128;
+					for (int i = 0; i < N; ++i)
+					{
+						float a = (2.0f*IM_PI) * (float)i / (float)N;
+						pts_stack[i] = ImVec2(c.x + cosf(a)*r, c.y + sinf(a)*r);
+					}
+					pts_count = N;
+				}
+				else if (path_type == 5)
+				{
+					// Infinity (lemniscate of Gerono)
+					ImVec2 c((left+right)*0.5f, (top+bottom)*0.5f);
+					float sx = (right-left)*0.35f, sy = (bottom-top)*0.25f;
+					int N = 140;
+					for (int i = 0; i < N; ++i)
+					{
+						float t = (2.0f*IM_PI) * (float)i / (float)(N-1);
+						float x = cosf(t);
+						float y = sinf(t) * cosf(t);
+						pts_stack[i] = ImVec2(c.x + x*sx, c.y + y*sy);
+					}
+					pts_count = N;
+				}
+				else if (path_type == 6)
+				{
+					// Rose curve r = a*cos(kθ) with k=5
+					ImVec2 c((left+right)*0.5f, (top+bottom)*0.5f);
+					float a = ImMin((right-left), (bottom-top))*0.35f;
+					int N = 220; int k = 5;
+					for (int i = 0; i < N; ++i)
+					{
+						float th = (2.0f*IM_PI) * (float)i / (float)(N-1);
+						float r = a * cosf(k*th);
+						pts_stack[i] = ImVec2(c.x + r*cosf(th), c.y + r*sinf(th));
+					}
+					pts_count = N;
+				}
+				else if (path_type == 7)
+				{
+					// Heart curve (scaled)
+					ImVec2 c((left+right)*0.5f, (top+bottom)*0.5f);
+					float s = ImMin((right-left), (bottom-top))*0.035f;
+					int N = 160; int idx = 0;
+					for (int i = 0; i < N; ++i)
+					{
+						float t = (2.0f*IM_PI) * (float)i / (float)(N-1);
+						float x = 16.0f*s*sinf(t)*sinf(t)*sinf(t);
+						float y = - (13.0f*cosf(t) - 5.0f*cosf(2*t) - 2.0f*cosf(3*t) - cosf(4*t)) * s;
+						pts_stack[idx++] = ImVec2(c.x + x, c.y + y);
+					}
+					pts_count = N;
+				}
+				else if (path_type == 8)
+				{
+					// Sawtooth across the rect
+					int teeth = 12; int idx = 0;
+					float w = (right-left);
+					float h0 = top + (bottom-top)*0.25f;
+					float h1 = bottom - (bottom-top)*0.25f;
+					for (int i = 0; i <= teeth; ++i)
+					{
+						float x = ImLerp(left, right, (float)i/(float)teeth);
+						float y = (i%2)==0 ? h0 : h1;
+						pts_stack[idx++] = ImVec2(x, y);
+					}
+					pts_count = (teeth+1);
+				}
+				else if (path_type == 9)
+				{
+					// Arc chain: alternating up/down semicircles
+					int arcs = 6; int seg = 18; int idx = 0;
+					float span = (right-left) / arcs;
+					float cy = (top+bottom)*0.5f;
+					float r = (bottom-top)*0.22f;
+					for (int a = 0; a < arcs; ++a)
+					{
+						float cx = left + span*(a+0.5f);
+						bool up = (a%2)==0;
+						// Up arc should go from 0..pi (bulge up), down arc pi..2pi
+						float start = up ? 0.0f : IM_PI;
+						float end   = up ? IM_PI : 2.0f*IM_PI;
+						for (int i = 0; i <= seg; ++i)
+						{
+							float t = (float)i/(float)seg;
+							float ang = ImLerp(start, end, t);
+							// Skip duplicate vertex between consecutive arcs
+							if (i==0 && a>0) continue;
+							pts_stack[idx++] = ImVec2(cx + cosf(ang)*r, cy + sinf(ang)*r);
+						}
+					}
+					pts_count = idx;
+				}
+				else if (path_type == 10)
+				{
+					// 5-point star
+					ImVec2 c((left+right)*0.5f, (top+bottom)*0.5f);
+					float R = ImMin((right-left), (bottom-top))*0.42f;
+					float r = R*0.45f; int idx = 0;
+					for (int i = 0; i < 10; ++i)
+					{
+						float ang = -IM_PI*0.5f + (float)i * (IM_PI/5.0f);
+						float rad = (i%2)==0 ? R : r;
+						pts_stack[idx++] = ImVec2(c.x + cosf(ang)*rad, c.y + sinf(ang)*rad);
+					}
+					pts_count = 10;
+				}
+				else if (path_type == 11)
+				{
+					// Bezier S (two cubic segments)
+					ImVec2 p0(left, (top+bottom)*0.5f);
+					ImVec2 p1(left + (right-left)*0.25f, top);
+					ImVec2 p2(left + (right-left)*0.25f, bottom);
+					ImVec2 p3(left + (right-left)*0.5f, (top+bottom)*0.5f);
+					ImVec2 q0 = p3;
+					ImVec2 q1(left + (right-left)*0.75f, bottom);
+					ImVec2 q2(left + (right-left)*0.75f, top);
+					ImVec2 q3(right, (top+bottom)*0.5f);
+					int N = 32; int idx = 0;
+					for (int i = 0; i < N; ++i)
+					{
+						float t = (float)i/(float)(N-1);
+						float u = 1.0f - t;
+						ImVec2 a = ImVec2(u*u*u*p0.x + 3*u*u*t*p1.x + 3*u*t*t*p2.x + t*t*t*p3.x,
+						                    u*u*u*p0.y + 3*u*u*t*p1.y + 3*u*t*t*p2.y + t*t*t*p3.y);
+						pts_stack[idx++] = a;
+					}
+					for (int i = 0; i < N; ++i)
+					{
+						float t = (float)i/(float)(N-1);
+						float u = 1.0f - t;
+						ImVec2 b = ImVec2(u*u*u*q0.x + 3*u*u*t*q1.x + 3*u*t*t*q2.x + t*t*t*q3.x,
+						                    u*u*u*q0.y + 3*u*u*t*q1.y + 3*u*t*t*q2.y + t*t*t*q3.y);
+						pts_stack[idx++] = b;
+					}
+					pts_count = 2*N;
+				}
+
+				ImU32 col = IM_COL32(255, 200, 40, 255);
+				if (animate)
+					offset += ImGui::GetIO().DeltaTime * 50.0f;
+				ImWidgets::DrawDashedPolylineAA(dl, pts, pts_count, col, thickness, dash_len, gap_len, offset, closed, (ImWidgetsCap_)cap_idx, (ImWidgetsJoin)join_idx, miter_limit);
+
+				ImGui::SetCursorScreenPos(origin + ImVec2(0, height + 6));
+				ImGui::SliderFloat("Thickness##dashed", &thickness, 1.0f, 24.0f);
+				ImGui::SliderFloat("Dash##dashed", &dash_len, 1.0f, 100.0f);
+				ImGui::SliderFloat("Gap##dashed", &gap_len, 0.0f, 100.0f);
+				ImGui::SliderFloat("Offset##dashed", &offset, -200.0f, 200.0f);
+				ImGui::Checkbox("Animate Offset##dashed", &animate);
+				ImGui::Checkbox("Closed##dashed", &closed);
+				ImGui::Combo("Cap##dashed", &cap_idx, caps, IM_ARRAYSIZE(caps));
+				ImGui::Combo("Join##dashed", &join_idx, joins, IM_ARRAYSIZE(joins));
+				ImGui::SliderFloat("Miter Limit##dashed", &miter_limit, 1.0f, 12.0f, "%.2f");
+				ImGui::Combo("Path##dashed", &path_type, paths, IM_ARRAYSIZE(paths));
+				bool use_gpu = ImWidgets::GetDashedLinesUseGPU();
+				if (ImGui::Checkbox("GPU Path##dashed", &use_gpu))
+					ImWidgets::SetDashedLinesUseGPU(use_gpu);
+				bool debug_joins = ImWidgets::GetDashedLinesDebugJoins();
+				if (ImGui::Checkbox("Debug Joins (CPU)##dashed", &debug_joins))
+					ImWidgets::SetDashedLinesDebugJoins(debug_joins);
 			}
 #if 0 // TODO
 			if ( ImGui::CollapsingHeader( "SliderRing" ) )
@@ -1776,9 +2195,9 @@ namespace ImWidgets {
 				ImGui::DragFloat( "Cursor Height##HueSelector", &cursorHeight, 1.0f, 1.0f, 64.0f );
 
 				ImWidgets::GetStyle().PushVar( StyleVar_HueSelector_Thickness_ZeroWidth, 10.0f );
-				HueSelector( "Hue##HueSelector", hueHeight, cursorHeight, &hueCenter, &hueWidth, &featherLeft, &featherRight, division, alphaHue, alphaHideHue, offset );
+				HueSelector( "Hue 0##HueSelector", hueHeight, cursorHeight, &hueCenter, &hueWidth, &featherLeft, &featherRight, division, alphaHue, alphaHideHue, offset );
 				ImWidgets::GetStyle().PopVar();
-				HueSelector( "Hue##HueSelector", hueHeight, cursorHeight, &hueCenter, &hueWidth, &featherLeft, &featherRight, division, alphaHue, alphaHideHue, offset );
+				HueSelector( "Hue 1##HueSelector", hueHeight, cursorHeight, &hueCenter, &hueWidth, &featherLeft, &featherRight, division, alphaHue, alphaHideHue, offset );
 			}
 			if ( ImGui::CollapsingHeader( "Slider2D Float" ) )
 			{
@@ -1802,4 +2221,4 @@ namespace ImWidgets {
 	}
 }
 
-#include <imgui/imgui_demo.cpp>
+#include <imgui_demo.cpp>

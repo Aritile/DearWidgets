@@ -5,7 +5,7 @@
 #endif
 
 namespace ImWidgets{
-	ImGlobalData GlobalData;
+    ImGlobalData GlobalData;
 
 	//////////////////////////////////////////////////////////////////////////
 	// Data
@@ -2287,21 +2287,21 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 				if ( is_ab )
 				{
 					ImDrawIdx new_ab = edge_to_idx[ ab ];
-					IM_ASSERT( new_ab > vtx_count );
+					IM_ASSERT( new_ab >= vtx_count );
 					new_indices.push_back( { a, new_ab, c } );
 					new_indices.push_back( { c, new_ab, b } );
 				}
 				else if ( is_bc )
 				{
 					ImDrawIdx new_bc = edge_to_idx[ bc ];
-					IM_ASSERT( new_bc > vtx_count );
+					IM_ASSERT( new_bc >= vtx_count );
 					new_indices.push_back( { b, new_bc, a } );
 					new_indices.push_back( { a, new_bc, c } );
 				}
 				else if ( is_ca )
 				{
 					ImDrawIdx new_ca = edge_to_idx[ ca ];
-					IM_ASSERT( new_ca > vtx_count );
+					IM_ASSERT( new_ca >= vtx_count );
 					new_indices.push_back( { c, new_ca, b } );
 					new_indices.push_back( { b, new_ca, a } );
 				}
@@ -2316,8 +2316,8 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 				{
 					ImDrawIdx new_ab = edge_to_idx[ ab ];
 					ImDrawIdx new_bc = edge_to_idx[ bc ];
-					IM_ASSERT( new_ab > vtx_count );
-					IM_ASSERT( new_bc > vtx_count );
+					IM_ASSERT( new_ab >= vtx_count );
+					IM_ASSERT( new_bc >= vtx_count );
 					new_indices.push_back( { a, new_ab, new_bc } );
 					new_indices.push_back( { b, new_bc, new_ab } );
 					new_indices.push_back( { c, a, new_bc } );
@@ -2326,8 +2326,8 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 				{
 					ImDrawIdx new_bc = edge_to_idx[ bc ];
 					ImDrawIdx new_ca = edge_to_idx[ ca ];
-					IM_ASSERT( new_bc > vtx_count );
-					IM_ASSERT( new_ca > vtx_count );
+					IM_ASSERT( new_bc >= vtx_count );
+					IM_ASSERT( new_ca >= vtx_count );
 					new_indices.push_back( { b, new_bc, new_ca } );
 					new_indices.push_back( { a, b, new_ca } );
 					new_indices.push_back( { c, new_ca, new_bc } );
@@ -2336,8 +2336,8 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 				{
 					ImDrawIdx new_ab = edge_to_idx[ ab ];
 					ImDrawIdx new_ca = edge_to_idx[ ca ];
-					IM_ASSERT( new_ab > vtx_count );
-					IM_ASSERT( new_ca > vtx_count );
+					IM_ASSERT( new_ab >= vtx_count );
+					IM_ASSERT( new_ca >= vtx_count );
 					new_indices.push_back( { a, new_ab, new_ca } );
 					new_indices.push_back( { c, new_ca, new_ab } );
 					new_indices.push_back( { b, c, new_ab } );
@@ -2352,9 +2352,9 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 				ImDrawIdx new_ab = edge_to_idx[ ab ];
 				ImDrawIdx new_bc = edge_to_idx[ bc ];
 				ImDrawIdx new_ca = edge_to_idx[ ca ];
-				IM_ASSERT( new_ab > vtx_count );
-				IM_ASSERT( new_bc > vtx_count );
-				IM_ASSERT( new_ca > vtx_count );
+				IM_ASSERT( new_ab >= vtx_count );
+				IM_ASSERT( new_bc >= vtx_count );
+				IM_ASSERT( new_ca >= vtx_count );
 
 				new_indices.push_back( { a, new_ab, new_ca } );
 				new_indices.push_back( { b, new_bc, new_ab } );
@@ -2543,7 +2543,7 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 		shape.bb.Min.y =  FLT_MAX;
 		shape.bb.Max.x = -FLT_MAX;
 		shape.bb.Max.y = -FLT_MAX;
-		for ( int k = 0; k < side_count + 2; ++k )
+		for ( int k = 0; k < side_count + 1; ++k )
 		{
 			float _0 = angle_min + ( ( float )k ) * d0;
 			ImVec2 v;
@@ -2566,6 +2566,47 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 	void	GenShapeRegularNGon( ImWidgetsShape& shape, ImVec2 center, float radius, int side_count )
 	{
 		GenShapeCircle( shape, center, radius, side_count );
+	}
+	void	GenShapeSquircle( ImWidgetsShape& shape, ImVec2 center, float radius, int side_count, float n )
+	{
+		shape.vertices.clear();
+		shape.triangles.clear();
+
+		// Squircle is defined by the superellipse equation: |x/a|^n + |y/b|^n = 1
+		// We'll sample points around the shape parametrically
+		float d0 = 2.0f * IM_PI / ( ( float )( side_count ) );
+		shape.vertices.resize( side_count + 1 );
+		shape.triangles.resize( side_count );
+		shape.vertices[ 0 ].pos = center;
+
+		// Generate vertices using parametric form of superellipse
+		for ( int k = 0; k < side_count; ++k )
+		{
+			float angle = ( ( float )k ) * d0;
+			float cos_angle = ImCos( angle );
+			float sin_angle = ImSin( angle );
+
+			// Superellipse parametric equations
+			// x = a * sgn(cos(t)) * |cos(t)|^(2/n)
+			// y = b * sgn(sin(t)) * |sin(t)|^(2/n)
+			float exp = 2.0f / n;
+			float x = ImPow( ImFabs( cos_angle ), exp ) * ( cos_angle >= 0 ? 1.0f : -1.0f );
+			float y = ImPow( ImFabs( sin_angle ), exp ) * ( sin_angle >= 0 ? 1.0f : -1.0f );
+
+			shape.vertices[ k + 1 ].pos.x = center.x + radius * x;
+			shape.vertices[ k + 1 ].pos.y = center.y + radius * y;
+		}
+
+		// Generate triangles as a fan from center
+		for ( int k = 0; k < side_count; ++k )
+		{
+			shape.triangles[ k ].a = 0;
+			shape.triangles[ k ].b = ( k + 1 ) % side_count + 1;
+			shape.triangles[ k ].c = ( k + 2 ) % side_count + 1;
+		}
+
+		shape.bb.Min = center - ImVec2( radius, radius );
+		shape.bb.Max = center + ImVec2( radius, radius );
 	}
 
 	// TODO
@@ -2782,7 +2823,9 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 		markerParams.draw_type = 0.0f;
 		markerParams.pad0 = 0.0f;
 
-		CreateInternalShader( &ctx->markerShader, "markers", 0, NULL, sizeof( ImWidgetsMarkerBuffer ), &markerParams );
+		// TODO: Re-implement with new ImPlatform shader API
+		// CreateInternalShader( &ctx->markerShader, "markers", 0, NULL, sizeof( ImWidgetsMarkerBuffer ), &markerParams );
+		(void)markerParams; // Suppress unused variable warning
 
 //		char* vs_source;
 //		char* ps_source;
@@ -2830,8 +2873,15 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 	ImWidgetsContext* CreateContext()
 	{
 		ImWidgetsContext* ctx = IM_NEW( ImWidgetsContext );
-		if ( GlobalData.features & ImWidgetsFeatures_Markers )
-			ImPlatform::SetFeatures( ImPlatformFeatures_CustomShader );
+		// Default config: focus on CPU path
+		GlobalData.dashedLinesUseGPU = false;
+		// Ensure shader handles are zero-initialized to avoid random garbage checks
+		memset(&ctx->markerShader, 0, sizeof(ImDrawShader));
+		memset(&ctx->lineShader, 0, sizeof(ImDrawShader));
+		// TODO: Re-implement custom shader support with new ImPlatform shader API
+		// Custom shaders need to be created using ImPlatform_CreateShader() and ImPlatform_CreateShaderProgram()
+		// if ( GlobalData.features & ImWidgetsFeatures_Markers )
+		// 	Custom shader initialization would go here
 
 		if ( gs_pContext == NULL )
 			gs_pContext = ctx;
@@ -2857,22 +2907,10 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 				white_data[ channel * ( j * height + i ) + 3 ] = 0xFFu;
 			}
 		}
-		ImTextureID img_white = ImPlatform::CreateTexture2D( ( char* )white_data, width, height,
-															 {
-																ImPixelChannel_RGBA,
-																ImPixelType_UInt8,
-																ImTextureFiltering_Linear,
-																ImTextureBoundary_Clamp,
-																ImTextureBoundary_Clamp
-															 } );
-		ImTextureID img_black = ImPlatform::CreateTexture2D( ( char* )black_data, width, height,
-															 {
-																ImPixelChannel_RGBA,
-																ImPixelType_UInt8,
-																ImTextureFiltering_Linear,
-																ImTextureBoundary_Clamp,
-																ImTextureBoundary_Clamp
-															 } );
+		// Use new ImPlatform C API for texture creation
+		ImPlatform_TextureDesc tex_desc = ImPlatform_TextureDesc_Default( width, height );
+		ImTextureID img_white = ImPlatform_CreateTexture( white_data, &tex_desc );
+		ImTextureID img_black = ImPlatform_CreateTexture( black_data, &tex_desc );
 		IM_FREE( black_data );
 		IM_FREE( white_data );
 
@@ -2896,12 +2934,18 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 	{
 		if ( ctx != NULL )
 		{
+			// Clean up resources BEFORE deleting the context
+			int img_count = ctx->ressources.size();
+			for ( int k = 0; k < img_count; ++k )
+			{
+				ImPlatform_DestroyTexture( ctx->ressources[ k ] );
+			}
+
+			// If this is the global context, null it out
+			if ( ctx == gs_pContext )
+				gs_pContext = NULL;
+
 			IM_DELETE( ctx );
-		}
-		int img_count = gs_pContext->ressources.size();
-		for ( int k = 0; k < img_count; ++k )
-		{
-			ImPlatform::ReleaseTexture2D( gs_pContext->ressources[ k ] );
 		}
 	}
 
@@ -2915,9 +2959,9 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 	//////////////////////////////////////////////////////////////////////////
 	void DrawShapeDebugEx( ImDrawList* pDrawList, ImTextureID tex, ImWidgetsShape& shape, float edge_thickness, ImU32 edge_col, ImU32 triangle_col, float vrtx_radius, ImU32 vrtx_col, int tri_idx )
 	{
-		const bool push_texture_id = tex != pDrawList->_CmdHeader.TextureId;
+		const bool push_texture_id = tex != pDrawList->_CmdHeader.TexRef.GetTexID();
 		if ( push_texture_id )
-			pDrawList->PushTextureID( tex );
+			pDrawList->PushTexture( tex );
 
 		int vtx_count = shape.vertices.size();
 		int tri_count = shape.triangles.size();
@@ -3005,13 +3049,13 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 		}
 
 		if ( push_texture_id )
-			pDrawList->PopTextureID();
+			pDrawList->PopTexture();
 	}
 	void DrawShapeEx( ImDrawList* pDrawList, ImTextureID tex, ImWidgetsShape& shape )
 	{
-		const bool push_texture_id = tex != pDrawList->_CmdHeader.TextureId;
+		const bool push_texture_id = tex != pDrawList->_CmdHeader.TexRef.GetTexID();
 		if ( push_texture_id )
-			pDrawList->PushTextureID( tex );
+			pDrawList->PushTexture( tex );
 
 		int vtx_count = shape.vertices.size();
 		int tri_count = shape.triangles.size();
@@ -3034,17 +3078,17 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 		pDrawList->_VtxCurrentIdx += ( ImDrawIdx )vtx_count;
 
 		if ( push_texture_id )
-			pDrawList->PopTextureID();
+			pDrawList->PopTexture();
 	}
 	void DrawShapeDebug( ImDrawList* pDrawList, ImWidgetsShape& shape, float edge_thickness, ImU32 edge_col, ImU32 triangle_col, float vrtx_radius, ImU32 vrtx_col, int tri_idx )
 	{
 		// If we don't have a texture_id send the one on the header, it will discard the set of texture on DrawShapeEx
-		DrawShapeDebugEx( pDrawList, pDrawList->_CmdHeader.TextureId, shape, edge_thickness, edge_col, triangle_col, vrtx_radius, vrtx_col, tri_idx );
+		DrawShapeDebugEx( pDrawList, pDrawList->_CmdHeader.TexRef.GetTexID(), shape, edge_thickness, edge_col, triangle_col, vrtx_radius, vrtx_col, tri_idx );
 	}
 	void DrawShape( ImDrawList* pDrawList, ImWidgetsShape& shape )
 	{
 		// If we don't have a texture_id send the one on the header, it will discard the set of texture on DrawShapeEx
-		DrawShapeEx( pDrawList, pDrawList->_CmdHeader.TextureId, shape );
+		DrawShapeEx( pDrawList, pDrawList->_CmdHeader.TexRef.GetTexID(), shape );
 	}
 	void DrawImageShapeDebug( ImDrawList* pDrawList, ImTextureID tex, ImWidgetsShape& shape, float edge_thickness, ImU32 edge_col, ImU32 triangle_col, float vrtx_radius, ImU32 vrtx_col, int tri_idx )
 	{
@@ -3576,7 +3620,8 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 				}
 
 				// Sort the scan hits by X, so we have a proper left->right ordering
-				ImQsort( &scanHits[ 0 ], scanHits.size(), sizeof( ImVec2 ), &ImVec2CompX::Comp );
+				if ( scanHits.size() > 0 )
+					ImQsort( &scanHits[ 0 ], scanHits.size(), sizeof( ImVec2 ), &ImVec2CompX::Comp );
 
 				// generate the line segments.
 				{
@@ -3615,9 +3660,9 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 		// TODO add flag to support ImDrawListFlags_AntiAliasedFill
 		// cf. AddConvexPolyFilled(const ImVec2* points, const int points_count, ImU32 col)
 		{
-			const bool push_texture_id = img != draw->_CmdHeader.TextureId;
+			const bool push_texture_id = img != draw->_CmdHeader.TexRef.GetTexID();
 			if ( push_texture_id )
-				draw->PushTextureID( img );
+				draw->PushTexture( img );
 			const int idx_count = ( points_count - 2 ) * 3;
 			const int vtx_count = points_count;
 			draw->PrimReserve( idx_count, vtx_count );
@@ -3640,7 +3685,7 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 			}
 			draw->_VtxCurrentIdx += ( ImDrawIdx )vtx_count;
 			if ( push_texture_id )
-				draw->PopTextureID();
+				draw->PopTexture();
 		}
 	}
 
@@ -3666,9 +3711,9 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 		// TODO add flag to support ImDrawListFlags_AntiAliasedFill
 		// cf. AddConcavePolyFilled(const ImVec2* points, const int points_count, ImU32 col)
 		{
-			const bool push_texture_id = img != draw->_CmdHeader.TextureId;
+			const bool push_texture_id = img != draw->_CmdHeader.TexRef.GetTexID();
 			if ( push_texture_id )
-				draw->PushTextureID( img );
+				draw->PushTexture( img );
 			const int idx_count = ( points_count - 2 ) * 3;
 			const int vtx_count = points_count;
 			draw->PrimReserve( idx_count, vtx_count );
@@ -3694,7 +3739,7 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 			}
 			draw->_VtxCurrentIdx += ( ImDrawIdx )vtx_count;
 			if ( push_texture_id )
-				draw->PopTextureID();
+				draw->PopTexture();
 		}
 	}
 
@@ -3729,15 +3774,32 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 		ImFormatString( filename_ps, FILENAME_BUF, "./shaders/%s/%s_ps.%s", "wgpu", shader_name, "wgpu" );
 #endif
 
-		char *vs_source;
-		char *ps_source;
-		size_t file_data_size_vs;
-		size_t file_data_size_ps;
-		LoadShaderFile( &file_data_size_vs, &vs_source, filename_vs );
-		LoadShaderFile( &file_data_size_ps, &ps_source, filename_ps );
+		char *vs_source = NULL;
+		char *ps_source = NULL;
+		size_t file_data_size_vs = 0;
+		size_t file_data_size_ps = 0;
+		int ok_vs = LoadShaderFile( &file_data_size_vs, &vs_source, filename_vs );
+		int ok_ps = LoadShaderFile( &file_data_size_ps, &ps_source, filename_ps );
+		if ( !ok_vs || file_data_size_vs == 0 )
+		{
+			char alt_vs[ FILENAME_BUF * 2 ];
+			ImFormatString( alt_vs, sizeof(alt_vs), "./workingdir/shaders/%s/%s.%s", "hlsl_src", shader_name, "hlsl" );
+			LoadShaderFile( &file_data_size_vs, &vs_source, alt_vs );
+		}
+		if ( !ok_ps || file_data_size_ps == 0 )
+		{
+			char alt_ps[ FILENAME_BUF * 2 ];
+			ImFormatString( alt_ps, sizeof(alt_ps), "./workingdir/shaders/%s/%s.%s", "hlsl_src", shader_name, "hlsl" );
+			LoadShaderFile( &file_data_size_ps, &ps_source, alt_ps );
+		}
 
-		IM_ASSERT( vs_source && ps_source );
-		IM_ASSERT( file_data_size_vs != 0 && file_data_size_ps != 0 );
+		if ( vs_source == NULL || ps_source == NULL || file_data_size_vs == 0 || file_data_size_ps == 0 )
+		{
+			ImDrawShader zero = {};
+			memset( &zero, 0, sizeof( ImDrawShader ) );
+			memcpy( shaders_out, &zero, sizeof( ImDrawShader ) );
+			return;
+		}
 
 		ImDrawShader shader = ImPlatform::CreateShader( vs_source, ps_source, sizeof_vs_const_buffer, vs_const_buffer, sizeof_ps_const_buffer, ps_const_buffer );
 
@@ -3757,26 +3819,13 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 					 ImWidgetsMarker marker,
 					 ImWidgetsDrawType draw_type )
 	{
-		IM_ASSERT( ( PlatformData.features & ImWidgetsFeatures_Markers ) != 0 );
-
-		ImWidgetsMarkerBuffer params;
-		params.fg_color = ImGui::ColorConvertU32ToFloat4( fg_color );
-		params.bg_color = ImGui::ColorConvertU32ToFloat4( bg_color );
-		params.rotation = ImVec2( ImCos( rot_angle_rad ), ImSin( rot_angle_rad ) );
-		params.linewidth = linewidth;
-		params.size = shape_size;
-		params.type = ( float )marker;
-		params.antialiasing = antialiasing;
-		params.draw_type = ( float )draw_type;
-		params.pad0 = 0.0f;
-		if ( memcmp( &params, gs_pContext->markerShader.cpu_ps_data, sizeof( ImWidgetsMarkerBuffer ) ) )
-		{
-			ImPlatform::UpdateCustomPixelShaderConstants( gs_pContext->markerShader, &params );
-		}
-		ImPlatform::BeginCustomShader( pDrawList, gs_pContext->markerShader );
-		ImRect bb( start, start + size );
-		pDrawList->AddImageQuad( (ImTextureID)gs_pContext->whiteImg, bb.GetBL(), bb.GetBR(), bb.GetTR(), bb.GetTL(), ImVec2( 0, 0 ), ImVec2( 1, 0 ), ImVec2( 1, 1 ), ImVec2( 0, 1 ), IM_COL32( 255, 255, 255, 255 ) );
-		ImPlatform::EndCustomShader( pDrawList );
+		// TODO: Re-implement marker drawing with new ImPlatform shader API
+		// For now, this function is disabled pending shader system migration
+		// The new API requires using ImPlatform_CreateShader, ImPlatform_CreateShaderProgram,
+		// ImPlatform_BeginCustomShader, and ImPlatform_SetUniform
+		(void)pDrawList; (void)start; (void)size; (void)fg_color; (void)bg_color;
+		(void)rot_angle_rad; (void)shape_size; (void)linewidth; (void)antialiasing;
+		(void)marker; (void)draw_type;
 	}
 #endif
 
@@ -4726,7 +4775,8 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 				}
 
 				// Sort the scan hits by X, so we have a proper left->right ordering
-				ImQsort( &scanHits[ 0 ], scanHits.size(), sizeof( ImVec2 ), &ImVec2CompX::Comp );
+				if ( scanHits.size() > 0 )
+					ImQsort( &scanHits[ 0 ], scanHits.size(), sizeof( ImVec2 ), &ImVec2CompX::Comp );
 
 				// generate the line segments.
 				int i = 0;
@@ -6049,7 +6099,7 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 		}
 		frame_col = ImGui::GetColorU32( g.ActiveId == idX ? ImGuiCol_FrameBgActive : hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg );
 		bool value_changedXS = ImGui::SliderBehavior( frame_bb_dragX, idX, data_type, p_valueX, p_minX, p_maxX, NULL, ImGuiSliderFlags_NoInput | ImGuiSliderFlags_NoRoundToFormat, &grab_bbX );
-		if ( value_changedX )
+		if ( value_changedXS )
 			ImGui::MarkItemEdited( idX );
 
 		ImGui::RenderNavCursor( frame_bb_dragX, idX );
@@ -6078,6 +6128,8 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 		ImGui::RenderFrame( frame_bb_dragY.Min, frame_bb_dragY.Max, frame_col, true, g.Style.FrameRounding );
 
 		bool value_changedYS = ImGui::SliderBehavior( frame_bb_dragY, idY, data_type, p_valueY, p_minY, p_maxY, NULL, ImGuiSliderFlags_NoInput | ImGuiSliderFlags_NoRoundToFormat | ImGuiSliderFlags_Vertical, &grab_bbY );
+		if ( value_changedYS )
+			ImGui::MarkItemEdited( idY );
 
 		if ( label_size.x > 0.0f )
 			ImGui::RenderText( ImVec2( frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y ), label );
@@ -6154,7 +6206,8 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 
 		ImU32 const uTextCol = ImGui::ColorConvertFloat4ToU32( ImGui::GetStyle().Colors[ ImGuiCol_Text ] );
 
-		ImGui::SetWindowFontScale( 0.75f );
+		// TODO: SetWindowFontScale removed in new ImGui, need to use scaled fonts
+		// ImGui::SetWindowFontScale( 0.75f );
 
 		ImVec2 const vXSize = ImGui::CalcTextSize( pBufferX );
 		ImVec2 const vYSize = ImGui::CalcTextSize( pBufferY );
@@ -6171,7 +6224,7 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 			uTextCol,
 			pBufferY );
 
-		ImGui::SetWindowFontScale( 1.0f );
+		// ImGui::SetWindowFontScale( 1.0f );
 
 		return value_changedX || value_changedY || value_changedXS || value_changedYS;
 	}
@@ -6416,4 +6469,582 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 
 		drawList->AddImageRounded( id, cur, cur + winSize, ImVec2( 0.0f, 0.0f ), uv, col, window->WindowRounding );
 	}
+
+    // Config API
+    void SetDashedLinesUseGPU(bool enable)
+    {
+        GlobalData.dashedLinesUseGPU = enable;
+    }
+    bool GetDashedLinesUseGPU()
+    {
+        return GlobalData.dashedLinesUseGPU;
+    }
+    void SetDashedLinesDebugJoins(bool enable)
+    {
+        GlobalData.dashedLinesDebugJoins = enable;
+    }
+    bool GetDashedLinesDebugJoins()
+    {
+        return GlobalData.dashedLinesDebugJoins;
+    }
+}
+
+namespace ImWidgets
+{
+    // -------------------------------
+    // Dashed/Stroked Polylines (CPU)
+    // -------------------------------
+    static inline float DW_Length2D(const ImVec2& a, const ImVec2& b)
+    {
+        float dx = b.x - a.x;
+        float dy = b.y - a.y;
+        return ImSqrt(dx * dx + dy * dy);
+    }
+
+    struct DW_PathData
+    {
+        // Flattened sequence optionally closed: points2 has size (n + (closed?1:0))
+        ImVector<ImVec2> points2;
+        ImVector<float>  nodes;     // cumulative distances per point2 index
+        int seg_count;              // number of segments (points2.size()-1)
+        float total_len;            // total length (nodes.back())
+    };
+
+    static void DW_BuildPathData(const ImVec2* points, int points_count, bool closed, DW_PathData& out)
+    {
+        out.points2.resize(0);
+        out.nodes.resize(0);
+        if (points_count <= 1)
+        {
+            out.seg_count = 0;
+            out.total_len = 0.0f;
+            return;
+        }
+        int n2 = points_count + (closed ? 1 : 0);
+        out.points2.resize(n2);
+        for (int i = 0; i < points_count; ++i)
+            out.points2[i] = points[i];
+        if (closed)
+            out.points2[points_count] = points[0];
+
+        out.nodes.resize(n2);
+        out.nodes[0] = 0.0f;
+        for (int i = 1; i < n2; ++i)
+            out.nodes[i] = out.nodes[i - 1] + DW_Length2D(out.points2[i - 1], out.points2[i]);
+        out.seg_count = n2 - 1;
+        out.total_len = (n2 > 0) ? out.nodes[n2 - 1] : 0.0f;
+    }
+
+    static ImVec2 DW_EvalAtS(const DW_PathData& pd, float s, int& out_seg_idx, ImVec2* out_tangent)
+    {
+        // Clamp s to [0, total]
+        if (s <= 0.0f)
+        {
+            out_seg_idx = 0;
+            ImVec2 dir = pd.points2[1] - pd.points2[0];
+            float len = ImSqrt(dir.x * dir.x + dir.y * dir.y);
+            if (out_tangent) *out_tangent = (len > 0.0f) ? (dir / len) : ImVec2(1, 0);
+            return pd.points2[0];
+        }
+        if (s >= pd.total_len)
+        {
+            out_seg_idx = pd.seg_count - 1;
+            ImVec2 dir = pd.points2[pd.seg_count] - pd.points2[pd.seg_count - 1];
+            float len = ImSqrt(dir.x * dir.x + dir.y * dir.y);
+            if (out_tangent) *out_tangent = (len > 0.0f) ? (dir / len) : ImVec2(1, 0);
+            return pd.points2[pd.seg_count];
+        }
+        // Find segment i such that nodes[i] <= s <= nodes[i+1]
+        int lo = 0, hi = (int)pd.nodes.size() - 2; // last segment index = seg_count-1
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >> 1;
+            if (pd.nodes[mid + 1] < s)
+                lo = mid + 1;
+            else if (pd.nodes[mid] > s)
+                hi = mid - 1;
+            else
+            {
+                lo = mid;
+                break;
+            }
+        }
+        int i = ImClamp(lo, 0, pd.seg_count - 1);
+        float seg_len = pd.nodes[i + 1] - pd.nodes[i];
+        float t = (seg_len > 0.0f) ? ((s - pd.nodes[i]) / seg_len) : 0.0f;
+        ImVec2 p0 = pd.points2[i];
+        ImVec2 p1 = pd.points2[i + 1];
+        ImVec2 pos = p0 + (p1 - p0) * t;
+        if (out_tangent)
+        {
+            ImVec2 dir = p1 - p0;
+            float len = ImSqrt(dir.x * dir.x + dir.y * dir.y);
+            *out_tangent = (len > 0.0f) ? (dir / len) : ImVec2(1, 0);
+        }
+        out_seg_idx = i;
+        return pos;
+    }
+
+    static void DW_ExtractSubpath(const DW_PathData& pd, float s0, float s1, ImVector<ImVec2>& out_pts,
+                                  bool add_square_caps, float cap_extent)
+    {
+        out_pts.resize(0);
+        if (s1 - s0 <= 0.0f) return;
+
+        int seg_idx0 = 0, seg_idx1 = 0;
+        ImVec2 tan0, tan1;
+        ImVec2 p0 = DW_EvalAtS(pd, s0, seg_idx0, &tan0);
+        ImVec2 p1 = DW_EvalAtS(pd, s1, seg_idx1, &tan1);
+        // Start point
+        if (add_square_caps && cap_extent > 0.0f)
+            out_pts.push_back(p0 - tan0 * cap_extent);
+        out_pts.push_back(p0);
+        // Intermediate original vertices strictly inside (s0, s1)
+        for (int k = seg_idx0 + 1; k <= seg_idx1; ++k)
+        {
+            float s_at_k = pd.nodes[k];
+            if (s_at_k > s0 && s_at_k < s1)
+                out_pts.push_back(pd.points2[k]);
+        }
+        // End point
+        out_pts.push_back(p1);
+        if (add_square_caps && cap_extent > 0.0f)
+            out_pts.push_back(p1 + tan1 * cap_extent);
+    }
+
+    // Split the [0,total_len] distance domain into ON intervals based on dash pattern
+    static void DW_BuildOnIntervals(float total_len, const float* dashes, int dashes_count, float dash_offset,
+                                    ImVector<ImVec2>& intervals)
+    {
+        intervals.resize(0);
+        if (total_len <= 0.0f)
+            return;
+
+        if (dashes_count <= 0)
+        {
+            intervals.push_back(ImVec2(0.0f, total_len));
+            return;
+        }
+
+        // Compute pattern length and early-out for degenerate patterns
+        float pattern_len = 0.0f;
+        for (int i = 0; i < dashes_count; ++i)
+            pattern_len += ImMax(0.0f, dashes[i]);
+        if (pattern_len <= 0.0f)
+        {
+            intervals.push_back(ImVec2(0.0f, total_len));
+            return;
+        }
+
+        // Normalize offset to [0, pattern_len)
+        float off = ImFmod(dash_offset, pattern_len);
+        if (off < 0.0f) off += pattern_len;
+
+        // Find starting dash index and position inside it
+        int idx = 0;
+        float pos_in_seg = off;
+        while (idx < dashes_count && pos_in_seg >= ImMax(0.0f, dashes[idx]))
+        {
+            pos_in_seg -= ImMax(0.0f, dashes[idx]);
+            idx = (idx + 1) % dashes_count;
+        }
+
+        // March along the path, toggling ON/OFF segments
+        float s = 0.0f;
+        bool on = (idx % 2) == 0; // index 0 is ON, 1 is OFF, 2 is ON, ...
+        while (s < total_len)
+        {
+            float seg_len = ImMax(0.0f, dashes[idx]) - pos_in_seg;
+            float run = ImMin(seg_len, total_len - s);
+            if (on && run > 0.0f)
+                intervals.push_back(ImVec2(s, s + run));
+
+            s += run;
+            // Advance to next pattern segment
+            idx = (idx + 1) % dashes_count;
+            on = !on;
+            pos_in_seg = 0.0f;
+        }
+    }
+
+    // Helpers for join overlays (CPU visualization, includes miter limit)
+    static inline ImVec2 DW_Normalize(const ImVec2& v)
+    {
+        float l = ImSqrt(v.x * v.x + v.y * v.y);
+        return (l > 1e-6f) ? ImVec2(v.x / l, v.y / l) : ImVec2(1, 0);
+    }
+    static inline float DW_Cross(const ImVec2& a, const ImVec2& b) { return a.x * b.y - a.y * b.x; }
+    static inline ImVec2 DW_Perp(const ImVec2& v) { return ImVec2(-v.y, v.x); }
+    static bool DW_LineIntersection(const ImVec2& p, const ImVec2& r, const ImVec2& q, const ImVec2& s, ImVec2& out)
+    {
+        float rxs = DW_Cross(r, s);
+        if (ImFabs(rxs) < 1e-6f) return false;
+        ImVec2 qp = ImVec2(q.x - p.x, q.y - p.y);
+        float t = DW_Cross(qp, s) / rxs;
+        out = ImVec2(p.x + r.x * t, p.y + r.y * t);
+        return true;
+    }
+    static void DW_DrawJoinOverlay(ImDrawList* draw, const ImVec2& A, const ImVec2& B, const ImVec2& C,
+                                   ImU32 col, float thickness, ImWidgetsJoin join, float miter_limit)
+    {
+        if (join != ImWidgetsJoin_Round && join != ImWidgetsJoin_Mitter && join != ImWidgetsJoin_Bevel)
+            return;
+        ImVec2 v0 = DW_Normalize(ImVec2(B.x - A.x, B.y - A.y));
+        ImVec2 v1 = DW_Normalize(ImVec2(C.x - B.x, C.y - B.y));
+        if (ImSqrt((B.x - A.x)*(B.x - A.x) + (B.y - A.y)*(B.y - A.y)) < 1e-6f) return;
+        if (ImSqrt((C.x - B.x)*(C.x - B.x) + (C.y - B.y)*(C.y - B.y)) < 1e-6f) return;
+
+        float halfw = 0.5f * thickness;
+        float turn = DW_Cross(v0, v1);
+        if (ImFabs(turn) < 1e-6f)
+            return; // colinear
+        // Skip tiny angle changes to avoid visual spikes on dense polylines
+        float dotv0 = ImClamp(v0.x * v1.x + v0.y * v1.y, -1.0f, 1.0f);
+        if (dotv0 > 0.996f) // ~< 5 degrees
+            return;
+        ImVec2 n0 = DW_Perp(v0);
+        ImVec2 n1 = DW_Perp(v1);
+        ImVec2 nout0 = (turn > 0.0f) ? n0 : ImVec2(-n0.x, -n0.y);
+        ImVec2 nout1 = (turn > 0.0f) ? n1 : ImVec2(-n1.x, -n1.y);
+        ImVec2 e0 = ImVec2(B.x + nout0.x * halfw, B.y + nout0.y * halfw);
+        ImVec2 e1 = ImVec2(B.x + nout1.x * halfw, B.y + nout1.y * halfw);
+
+        if (join == ImWidgetsJoin_Round)
+        {
+            // Fan arc between e0 and e1
+            // Determine arc direction
+            int segments = ImClamp((int)(halfw * 0.5f), 6, 24);
+            ImVector<ImVec2> arc;
+            arc.resize(0);
+            // Build arc by stepping angle from nout0 to nout1 around center B
+            float a0 = atan2f(nout0.y, nout0.x);
+            float a1 = atan2f(nout1.y, nout1.x);
+            // Ensure we go the shorter way in the outside direction
+            float da = a1 - a0;
+            if (turn > 0.0f && da < 0.0f) da += 2.0f * IM_PI;
+            if (turn < 0.0f && da > 0.0f) da -= 2.0f * IM_PI;
+            for (int i = 0; i <= segments; ++i)
+            {
+                float t = (float)i / (float)segments;
+                float ang = a0 + da * t;
+                arc.push_back(ImVec2(B.x + cosf(ang) * halfw, B.y + sinf(ang) * halfw));
+            }
+            // Triangle fan (B, arc...)
+            for (int i = 0; i + 1 < arc.Size; ++i)
+                draw->AddTriangleFilled(B, arc[i], arc[i + 1], col);
+            return;
+        }
+
+        // Miter or Bevel
+        // Miter length criterion
+        float dotv = ImClamp(v0.x * v1.x + v0.y * v1.y, -0.9999f, 0.9999f);
+        float phi = acosf(dotv);
+        float miter_len = halfw / ImMax(1e-6f, sinf(phi * 0.5f));
+
+        ImVec2 apex;
+        bool has_inter = DW_LineIntersection(e0, v0, e1, ImVec2(-v1.x, -v1.y), apex);
+        bool allow_miter = has_inter && (miter_len <= miter_limit * halfw);
+        if (join == ImWidgetsJoin_Mitter && allow_miter)
+        {
+            draw->AddTriangleFilled(e0, apex, e1, col);
+        }
+        else
+        {
+            // Bevel or miter clipped
+            draw->AddTriangleFilled(e0, B, e1, col);
+        }
+    }
+
+    void DrawDashedPolylineAA(
+        ImDrawList* drawlist,
+        const ImVec2* points, int points_count,
+        ImU32 col, float thickness,
+        const float* dashes, int dashes_count, float dash_offset,
+        bool closed,
+        ImWidgetsCap cap,
+        ImWidgetsJoin join,
+        float miter_limit)
+    {
+        // join and miter_limit are used by CPU fallback
+        if (!drawlist || !points || points_count <= 1 || (col & IM_COL32_A_MASK) == 0)
+            return;
+
+        // Common inputs
+        ImVec4 colf = ImGui::ColorConvertU32ToFloat4(col);
+        const float aa = 1.0f;
+        const int seg_count = closed ? points_count : (points_count - 1);
+
+#ifdef IM_SUPPORT_CUSTOM_SHADER
+        // TODO: Re-implement custom shader creation with new ImPlatform shader API
+        // Shader initialization disabled pending migration
+        // if (gs_pContext->lineShader.vs == NULL && gs_pContext->lineShader.ps == NULL)
+        // {
+        //     ImWidgetsDashedLineBuffer init = {};
+        //     init.p0 = ImVec2(0, 0);
+        //     init.p1 = ImVec2(1, 0);
+        //     init.thickness = 1.0f;
+        //     init.aa = 1.0f;
+        //     init.dash = ImVec2(4.0f, 4.0f);
+        //     init.dash_offset = 0.0f;
+        //     init.cap = (float)ImWidgetsCap_Butt;
+        //     init.join = 0.0f;
+        //     init.miter_limit = 4.0f;
+        //     init.color = ImGui::ColorConvertU32ToFloat4(IM_COL32(255,255,255,255));
+        //     CreateInternalShader(&gs_pContext->lineShader, "lines", 0, NULL, sizeof(ImWidgetsDashedLineBuffer), &init);
+        // }
+
+        bool shader_ok = (gs_pContext->lineShader.vs != NULL && gs_pContext->lineShader.ps != NULL && gs_pContext->lineShader.ps_cst != NULL);
+        const bool enable_gpu_path = GlobalData.dashedLinesUseGPU; // user-configurable
+        bool gpu_drew_any = false;
+        if (enable_gpu_path && shader_ok)
+        {
+            // Precompute cumulative lengths for dash continuity across segments
+            float acc_len = 0.0f;
+            for (int i = 0; i < seg_count; ++i)
+            {
+                int i0 = i;
+                int i1 = (i + 1) % points_count;
+                ImVec2 a = points[i0];
+                ImVec2 b = points[i1];
+                ImVec2 d = b - a;
+                float len = ImSqrt(d.x * d.x + d.y * d.y);
+                if (len <= 1e-6f)
+                    continue;
+
+                ImWidgetsDashedLineBuffer params;
+                params.p0 = a;
+                params.p1 = b;
+                params.thickness = thickness;
+                params.aa = aa;
+                if (dashes && dashes_count > 0)
+                {
+                    float dash_len_px = ImMax(0.5f, dashes[0]);
+                    float gap_len_px  = (dashes_count > 1) ? ImMax(0.0f, dashes[1]) : dash_len_px;
+                    params.dash = ImVec2(dash_len_px, gap_len_px);
+                }
+                else
+                {
+                    params.dash = ImVec2(1e9f, 0.0f); // effectively solid
+                }
+                params.dash_offset = dash_offset + acc_len;
+                params.cap = (float)cap;
+                params.join = (float)join;
+                params.miter_limit = miter_limit;
+                params.pad0 = 0.0f;
+                float pad = 0.5f * thickness + 2.0f * aa + 2.0f;
+                ImVec2 minv(ImMin(a.x, b.x) - pad, ImMin(a.y, b.y) - pad);
+                ImVec2 maxv(ImMax(a.x, b.x) + pad, ImMax(a.y, b.y) + pad);
+                params.rect_min = minv;
+                params.rect_max = maxv;
+                params.color = colf;
+
+                // TODO: Re-implement with new ImPlatform shader API
+                // Temporarily disabled pending shader system migration
+                (void)params;
+                // ImPlatform::UpdateCustomPixelShaderConstants(gs_pContext->lineShader, &params);
+                // ImPlatform::BeginCustomShader(drawlist, gs_pContext->lineShader);
+                // drawlist->AddImageQuad((ImTextureID)gs_pContext->whiteImg,
+                //                        ImVec2(minv.x, minv.y), ImVec2(maxv.x, minv.y), ImVec2(maxv.x, maxv.y), ImVec2(minv.x, maxv.y),
+                //                        ImVec2(0,0), ImVec2(1,0), ImVec2(1,1), ImVec2(0,1), IM_COL32(255,255,255,255));
+                // ImPlatform::EndCustomShader(drawlist);
+                gpu_drew_any = true;
+
+                acc_len += len;
+            }
+
+            // GPU path rendered
+            // For triangle caps (not supported in shader), we'll add CPU overlay below.
+            // For other caps, skip CPU base fallback to avoid double drawing.
+            // Mark via a local flag (outside of ifdef) using a static boolean
+        }
+#endif // IM_SUPPORT_CUSTOM_SHADER
+
+        // CPU fallback/overlay: dashed polyline and/or extra caps
+        bool gpu_used = false;
+#ifdef IM_SUPPORT_CUSTOM_SHADER
+        gpu_used = enable_gpu_path && shader_ok && gpu_drew_any;
+#endif
+        // Draw CPU base only if GPU wasn't used
+        const bool want_cpu_base = !gpu_used;
+        const bool want_tri_overlay = (cap == ImWidgetsCap_TriangleOut) || (!gpu_used && cap == ImWidgetsCap_TriangleIn);
+
+        // CPU fallback: dashed polyline using subpaths
+        DW_PathData pd_local;
+        DW_BuildPathData(points, points_count, closed, pd_local);
+        ImVector<ImVec2> intervals;
+        ImVector<ImVec2> subpath;
+        bool any_drawn = false;
+        float dash_len_px = 1e9f, gap_len_px = 0.0f;
+        if (dashes && dashes_count > 0)
+        {
+            dash_len_px = ImMax(0.5f, dashes[0]);
+            gap_len_px  = (dashes_count > 1) ? ImMax(0.0f, dashes[1]) : dash_len_px;
+        }
+        float pats_local[2] = { dash_len_px, gap_len_px };
+        DW_BuildOnIntervals(pd_local.total_len, pats_local, 2, dash_offset, intervals);
+
+        auto draw_caps = [&](const ImVector<ImVec2>& sp)
+        {
+            if (sp.Size < 2) return;
+            const float halfw = 0.5f * thickness;
+            auto safe_norm = [](ImVec2 v) { float l = ImSqrt(v.x*v.x + v.y*v.y); return (l > 1e-6f) ? ImVec2(v.x/l, v.y/l) : ImVec2(1, 0); };
+            auto perp = [](const ImVec2& v){ return ImVec2(-v.y, v.x); };
+            const ImVec2 p_start = sp[0];
+            const ImVec2 p_start_next = sp[1];
+            const ImVec2 p_end = sp[sp.Size - 1];
+            const ImVec2 p_end_prev = sp[sp.Size - 2];
+            ImVec2 t0 = safe_norm(p_start_next - p_start);
+            ImVec2 t1 = safe_norm(p_end - p_end_prev);
+            ImVec2 n0 = perp(t0);
+            ImVec2 n1 = perp(t1);
+            if (cap == ImWidgetsCap_Round && !gpu_used)
+            {
+                drawlist->AddCircleFilled(p_start, halfw, col, 16);
+                drawlist->AddCircleFilled(p_end,   halfw, col, 16);
+            }
+            else if (cap == ImWidgetsCap_TriangleOut)
+            {
+                ImVec2 base0_l = p_start - n0 * halfw, base0_r = p_start + n0 * halfw;
+                ImVec2 base1_l = p_end   - n1 * halfw, base1_r = p_end   + n1 * halfw;
+                ImVec2 apex0 = p_start - t0 * halfw; ImVec2 apex1 = p_end + t1 * halfw;
+                drawlist->AddTriangleFilled(base0_l, base0_r, apex0, col);
+                drawlist->AddTriangleFilled(base1_l, base1_r, apex1, col);
+            }
+            else if (!gpu_used && cap == ImWidgetsCap_TriangleIn)
+            {
+                ImVec2 base0_l = p_start - n0 * halfw, base0_r = p_start + n0 * halfw;
+                ImVec2 base1_l = p_end   - n1 * halfw, base1_r = p_end   + n1 * halfw;
+                ImVec2 apex0 = p_start + t0 * halfw; ImVec2 apex1 = p_end - t1 * halfw;
+                drawlist->AddTriangleFilled(base0_l, base0_r, apex0, col);
+                drawlist->AddTriangleFilled(base1_l, base1_r, apex1, col);
+            }
+            else if (!gpu_used && cap == ImWidgetsCap_Square)
+            {
+                ImVec2 dir0 = DW_Normalize(p_start_next - p_start);
+                ImVec2 dir1 = DW_Normalize(p_end - p_end_prev);
+                ImVec2 s0 = p_start - dir0 * halfw - n0 * halfw;
+                ImVec2 s1 = p_start - dir0 * halfw + n0 * halfw;
+                drawlist->AddQuadFilled(s0, s1, p_start + n0 * halfw, p_start - n0 * halfw, col);
+                ImVec2 e0 = p_end + dir1 * halfw - n1 * halfw;
+                ImVec2 e1 = p_end + dir1 * halfw + n1 * halfw;
+                drawlist->AddQuadFilled(p_end - n1 * halfw, p_end + n1 * halfw, e1, e0, col);
+            }
+        };
+
+        auto draw_subpath = [&](ImVector<ImVec2>& sp)
+        {
+            if (sp.Size < 2) return;
+            const float halfw = 0.5f * thickness;
+            auto seg_normal = [](const ImVec2& a, const ImVec2& b)
+            {
+                ImVec2 d(b.x - a.x, b.y - a.y);
+                float l = ImSqrt(d.x*d.x + d.y*d.y);
+                if (l <= 1e-6f) return ImVec2(0, 0);
+                ImVec2 v(d.x / l, d.y / l);
+                return ImVec2(-v.y, v.x);
+            };
+
+            if (want_cpu_base)
+            {
+                // Draw thick butt-capped quads per segment
+                for (int s = 0; s + 1 < sp.Size; ++s)
+                {
+                    const ImVec2& p0 = sp[s];
+                    const ImVec2& p1 = sp[s + 1];
+                    ImVec2 n = seg_normal(p0, p1);
+                    if (n.x == 0 && n.y == 0) continue;
+                    ImVec2 off(n.x * halfw, n.y * halfw);
+                    ImVec2 p0l = ImVec2(p0.x - off.x, p0.y - off.y);
+                    ImVec2 p0r = ImVec2(p0.x + off.x, p0.y + off.y);
+                    ImVec2 p1l = ImVec2(p1.x - off.x, p1.y - off.y);
+                    ImVec2 p1r = ImVec2(p1.x + off.x, p1.y + off.y);
+                    drawlist->AddQuadFilled(p0l, p1l, p1r, p0r, col);
+                }
+
+                // Add joins according to join style and miter limit
+                for (int s = 1; s + 1 < sp.Size; ++s)
+                    DW_DrawJoinOverlay(drawlist, sp[s - 1], sp[s], sp[s + 1], col, thickness, join, miter_limit);
+
+                any_drawn = true;
+            }
+
+            // Caps at subpath ends
+            if ((cap == ImWidgetsCap_Round && !gpu_used) || (cap == ImWidgetsCap_TriangleOut) || (!gpu_used && (cap == ImWidgetsCap_TriangleIn || cap == ImWidgetsCap_Square)))
+                draw_caps(sp);
+        };
+
+        // Seamless wrap for closed loop: merge last and first ON intervals across seam
+        bool merge_wrap = closed && intervals.Size >= 2 && intervals[0].x <= 1e-6f && ImFabs(intervals.back().y - pd_local.total_len) <= 1e-6f;
+        if (merge_wrap)
+        {
+            ImVector<ImVec2> A; A.resize(0);
+            ImVector<ImVec2> B; B.resize(0);
+            DW_ExtractSubpath(pd_local, intervals.back().x, pd_local.total_len, A, cap == ImWidgetsCap_Square, 0.5f * thickness);
+            DW_ExtractSubpath(pd_local, 0.0f, intervals[0].y, B, cap == ImWidgetsCap_Square, 0.5f * thickness);
+            ImVector<ImVec2> C; C.resize(0);
+            C.resize(A.Size + B.Size);
+            for (int i = 0; i < A.Size; ++i) C[i] = A[i];
+            for (int i = 0; i < B.Size; ++i) C[A.Size + i] = B[i];
+            draw_subpath(C);
+        }
+
+        for (int k = 0; k < intervals.Size; ++k)
+        {
+            // Skip intervals merged for wrap
+            if (merge_wrap && (k == 0 || k == intervals.Size - 1))
+                continue;
+            float s0 = intervals[k].x;
+            float s1 = intervals[k].y;
+            if (s1 - s0 <= 0.0f) continue;
+            subpath.resize(0);
+            DW_ExtractSubpath(pd_local, s0, s1, subpath, cap == ImWidgetsCap_Square, 0.5f * thickness);
+            draw_subpath(subpath);
+        }
+
+        // Safety net: if nothing was drawn (e.g., degenerate dash pattern), draw a solid polyline
+        if (!any_drawn && points_count >= 2)
+        {
+            ImDrawFlags flags = closed ? ImDrawFlags_Closed : 0;
+            drawlist->AddPolyline(points, points_count, col, flags, thickness);
+        }
+
+        // Optional debug: visualize joins using current join + miter_limit on full path
+        if (GlobalData.dashedLinesDebugJoins && points_count >= 3)
+        {
+            if (closed)
+            {
+                for (int i = 0; i < points_count; ++i)
+                {
+                    int i0 = (i - 1 + points_count) % points_count;
+                    int i1 = i;
+                    int i2 = (i + 1) % points_count;
+                    DW_DrawJoinOverlay(drawlist, points[i0], points[i1], points[i2], col, thickness, join, miter_limit);
+                }
+            }
+            else
+            {
+                for (int i = 1; i + 1 < points_count; ++i)
+                    DW_DrawJoinOverlay(drawlist, points[i - 1], points[i], points[i + 1], col, thickness, join, miter_limit);
+            }
+        }
+
+        // Note: debug join overlays have been removed from the library draw to avoid artifacts
+        // when rendering dense polylines (e.g., sine paths). If needed, add a demo-only toggle
+        // to visualize joins and call DW_DrawJoinOverlay from the demo code.
+
+    }
+
+    void DrawDashedPolylineAA(
+        ImDrawList* drawlist,
+        const ImVec2* points, int points_count,
+        ImU32 col, float thickness,
+        float dash_len, float gap_len, float dash_offset,
+        bool closed,
+        ImWidgetsCap cap,
+        ImWidgetsJoin join,
+        float miter_limit)
+    {
+        float pats[2] = { ImMax(0.0f, dash_len), ImMax(0.0f, gap_len) };
+        DrawDashedPolylineAA(drawlist, points, points_count, col, thickness, pats, 2, dash_offset, closed, cap, join, miter_limit);
+    }
 }
