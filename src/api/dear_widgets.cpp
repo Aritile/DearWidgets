@@ -2934,12 +2934,18 @@ static const float DRAG_MOUSE_THRESHOLD_FACTOR = 0.50f; // COPY PASTED FROM imgu
 	{
 		if ( ctx != NULL )
 		{
+			// Clean up resources BEFORE deleting the context
+			int img_count = ctx->ressources.size();
+			for ( int k = 0; k < img_count; ++k )
+			{
+				ImPlatform_DestroyTexture( ctx->ressources[ k ] );
+			}
+
+			// If this is the global context, null it out
+			if ( ctx == gs_pContext )
+				gs_pContext = NULL;
+
 			IM_DELETE( ctx );
-		}
-		int img_count = gs_pContext->ressources.size();
-		for ( int k = 0; k < img_count; ++k )
-		{
-			ImPlatform_DestroyTexture( gs_pContext->ressources[ k ] );
 		}
 	}
 
